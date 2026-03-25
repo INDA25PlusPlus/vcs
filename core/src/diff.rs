@@ -3,12 +3,10 @@ use crate::path::RepoPath;
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 
-pub type RepoDiffObjectRef = blake3::Hash;
-pub type FileDiffObjectRef = blake3::Hash;
 
 #[derive(Debug)]
-pub struct RepoDiff {
-    file_diffs: HashMap<RepoPath, FileDiffObjectRef>,
+pub struct RepoDiff<HashType> {
+    file_diffs: HashMap<RepoPath, HashType>,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -48,5 +46,5 @@ impl Debug for Hunk {
 
 #[cfg(test)]
 mod tests {
-    compile_error!("todo: unit tests");
+    // todo: unit tests
 }

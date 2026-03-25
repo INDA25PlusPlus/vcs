@@ -1,32 +1,33 @@
 use crate::crypto::SignedHash;
-use crate::diff::RepoDiffObjectRef;
+use crate::diff::RepoDiff;
 
 pub type CommitId = u32;
 
-pub struct Commit {
-    // the hashmap itself doesn't have to be cryptographically secure
-    repo_diff: RepoDiffObjectRef,
+pub struct Commit<HashType> {
+    repo_diff: RepoDiff<HashType>,
     author_message: String,
+
+    // hash of repo_diff, author_message
     author_signature: Option<SignedHash>,
 
-    // hash on repo_diff, author_message, author signature
-    author_hash: blake3::Hash,
+    // hash of repo_diff, author_message, author signature
+    author_hash: HashType,
 
     parent_id: CommitId,
-    parent_hash: blake3::Hash,
+    parent_hash: HashType,
 
     // hash of entire repo at this commit
-    repo_hash: blake3::Hash,
+    repo_hash: HashType,
     committer_message: String,
 
     // hash of author_hash, parent_id, parent_hash, repo_hash, committer_message
     committer_signature: SignedHash,
 
     // hash of committer_signature
-    commit_hash: blake3::Hash,
+    commit_hash: HashType,
 }
 
 #[cfg(test)]
 mod tests {
-    compile_error!("todo: unit tests");
+    // todo: unit tests
 }
