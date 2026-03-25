@@ -42,5 +42,5 @@ impl FromStr for RepoPathComponent {
 
 #[cfg(test)]
 mod tests {
-    compile_error!("todo: unit tests");
+    // todo: unit tests
 }

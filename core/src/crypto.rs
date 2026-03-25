@@ -16,7 +16,10 @@ impl SignedHash {
         todo!()
     }
 
-    pub fn verify(&self, unsigned_hash: &blake3::Hash) -> Result<(), aws_lc_rs::error::KeyRejected> {
+    pub fn verify(
+        &self,
+        unsigned_hash: &blake3::Hash,
+    ) -> Result<(), aws_lc_rs::error::KeyRejected> {
         todo!()
     }
 }
@@ -24,7 +27,7 @@ impl SignedHash {
 impl serde::Serialize for SignedHash {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
-        S: Serializer
+        S: Serializer,
     {
         todo!()
     }
@@ -33,7 +36,7 @@ impl serde::Serialize for SignedHash {
 impl<'de> serde::Deserialize<'de> for SignedHash {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
-        D: Deserializer<'de>
+        D: Deserializer<'de>,
     {
         todo!()
     }
@@ -47,5 +50,5 @@ impl Debug for SignedHash {
 
 #[cfg(test)]
 mod tests {
-    compile_error!("todo: unit tests");
+    // todo: unit tests
 }
