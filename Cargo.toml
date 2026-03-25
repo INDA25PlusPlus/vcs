@@ -6,5 +6,5 @@ edition = "2024"
 [dependencies]
 
 [workspace]
-members = ["common"]
+members = ["core"]
 resolver = "2"
