@@ -9,6 +9,13 @@ pub trait Storage<K, V> {
     async fn store(&self, key: &K, value: &V) -> Result<(), Self::Error>;
 }
 
+/// Trait representing the ability to enumerate keys known to a storage backend.
+pub trait KeyIndex<K, V> {
+    type Error;
+
+    async fn keys(&self) -> Result<Vec<K>, Self::Error>;
+}
+
 /// Thread-safe append-only map with lazy loading from an external storage.
 /// Guarantees persistent key-to-value mappings if `S` makes that guarantee.
 #[derive(Debug, Default, Clone)]
