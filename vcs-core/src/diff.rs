@@ -65,6 +65,14 @@ impl DiffPolicy for NaiveDiff {
     }
 }
 
+struct MyersDiff;
+
+impl DiffPolicy for MyersDiff {
+    fn diff(&self, src_diff: &[u8], dst_diff: &[u8]) -> FileDiff {
+        todo!("Implement 'Myers Diff Algorithm'")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
