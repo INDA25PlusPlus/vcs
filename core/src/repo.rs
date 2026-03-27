@@ -31,8 +31,8 @@ where
     pub async fn get_commit(
         &self,
         id: CommitId,
-    ) -> Option<Result<&Commit<HashType>, S::StorageError>> {
-        self.commits.get(&id).await
+    ) -> Result<Option<&Commit<HashType>>, S::StorageError> {
+        self.commits.get(id).await
     }
 
     // ...

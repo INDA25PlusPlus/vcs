@@ -4,8 +4,9 @@ use std::hash::Hash;
 pub trait Storage<K, V> {
     type Error;
 
-    async fn load(&self, key: &K) -> Result<V, Self::Error>;
-
+    /// returns `Ok(None)` when a key is not present. Storage backends should
+    /// reserve `Err` for actual storage failures.
+    async fn load(&self, key: &K) -> Result<Option<V>, Self::Error>;
     async fn store(&self, key: &K, value: &V) -> Result<(), Self::Error>;
 }
 
@@ -15,10 +16,7 @@ pub trait Storage<K, V> {
 pub struct LazyStorage<K: Eq + Hash, V, S: Storage<K, V>> {
     // elsa::sync::FrozenMap is used in order to allow concurrent reads and
     // writes by disallowing mutation or deletion of existing entries
-
-    // tokio::sync::OnceCell instead of std::sync::OnceLock in order to
-    // allow async initialization (tokio::sync::OnceCell::get_or_init)
-    items: elsa::sync::FrozenMap<K, Box<tokio::sync::OnceCell<V>>>,
+    items: elsa::sync::FrozenMap<K, Box<V>>,
     storage: S,
 }
 
@@ -35,21 +33,16 @@ where
         }
     }
 
-    /// Register `key` as a lazily evaluated entry. Does nothing if `key`
-    /// already has an entry.
-    pub fn register(&self, key: K) {
-        self.items
-            .insert(key, Box::new(tokio::sync::OnceCell::new()));
-    }
-
     /// Get the value at `key` if it is loaded, or try to load it from storage
-    pub async fn get(&self, key: &K) -> Option<Result<&V, S::Error>> {
-        let value = self.items.get(key)?;
-        Some(
-            value
-                .get_or_try_init(|| async { self.storage.load(key).await })
-                .await,
-        )
+    pub async fn get(&self, key: K) -> Result<Option<&V>, S::Error> {
+        if let Some(value) = self.items.get(&key) {
+            return Ok(Some(value));
+        }
+        let Some(value) = self.storage.load(&key).await? else {
+            return Ok(None);
+        };
+        let value_ref = self.items.insert(key, Box::new(value));
+        return Ok(Some(value_ref));
     }
 
     /// Attempt to insert `value` at `key`. Does nothing if `key` already
@@ -64,8 +57,7 @@ where
             return Ok(());
         }
         self.storage.store(&key, &value).await?;
-        self.items
-            .insert(key, Box::new(tokio::sync::OnceCell::from(value)));
+        self.items.insert(key, Box::new(value));
         Ok(())
     }
 }
@@ -78,8 +70,8 @@ mod tests {
 
     impl Storage<(), ()> for TestStorage {
         type Error = ();
-        async fn load(&self, _key: &()) -> Result<(), Self::Error> {
-            Ok(())
+        async fn load(&self, _key: &()) -> Result<Option<()>, Self::Error> {
+            Ok(Some(()))
         }
         async fn store(&self, _key: &(), _value: &()) -> Result<(), Self::Error> {
             Ok(())
@@ -97,6 +89,6 @@ mod tests {
 
         // compile error if the future returned from storage.get doesn't
         // implement Send
-        require_send(storage.get(&()));
+        require_send(storage.get(()));
     }
 }
