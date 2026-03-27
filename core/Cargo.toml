@@ -6,5 +6,6 @@ edition = "2024"
 [dependencies]
 aws-lc-rs = "1.16.2"
 blake3 = "1.8.3"
+dashmap = "6.1.0"
 elsa = "1.11.2"
 serde = "1.0.228"
