@@ -3,7 +3,6 @@ use crate::path::RepoPath;
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 
-
 #[derive(Debug)]
 pub struct RepoDiff<HashType> {
     file_diffs: HashMap<RepoPath, HashType>,
