@@ -1,3 +1,5 @@
+pub mod in_memory_storage;
+
 use std::hash::Hash;
 
 /// Trait representing an external storage such as a file system
