@@ -38,8 +38,8 @@ where
         self.commits.get(id).await
     }
 
-    pub async fn head_commit(&self) -> &Commit<HashType> {
-        todo!()
+    pub async fn head_commit(&self) -> Result<Option<&Commit<HashType>>, S::StorageError> {
+        self.commits.get(self.head).await
     }
 
     pub async fn make_commit(&mut self, message: String) {
