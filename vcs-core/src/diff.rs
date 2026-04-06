@@ -1,12 +1,14 @@
-use crate::crypto::CryptoHash;
+use crate::crypto::{CryptoHash, CryptoHashable};
 use crate::path::RepoPath;
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 
+pub type RepoDiffRef<H: CryptoHash> = H;
+
 /// Per-file diffs for a commit.
 #[derive(Debug)]
-pub struct RepoDiff<HashType> {
-    file_diffs: HashMap<RepoPath, HashType>,
+pub struct RepoDiff<H: CryptoHash> {
+    file_diffs: HashMap<RepoPath, H>,
 }
 
 /// Byte-level edits for one file.
@@ -32,8 +34,8 @@ impl FileDiff {
     }
 }
 
-impl CryptoHash for FileDiff {
-    fn crypto_hash(&self) -> blake3::Hash {
+impl CryptoHashable for FileDiff {
+    fn crypto_hash<H: CryptoHash>(&self) -> H {
         todo!()
     }
 }
