@@ -398,8 +398,150 @@ mod tests {
     #[test]
     fn test_naive_diff_from_file_content() {}
 
+    struct SimpleRng {
+        state: u32,
+    }
+
+    impl SimpleRng {
+        fn new(seed: u32) -> Self {
+            Self { state: seed }
+        }
+
+        fn next_u8(&mut self) -> u8 {
+            // Classic LCG constants (used by glibc)
+            self.state = self.state.wrapping_mul(1103515245).wrapping_add(12345);
+            // We take the high bits because they are "more random" in LCGs
+            ((self.state >> 16) & 0xFF) as u8
+        }
+    }
+
+    fn apply_diff(base: &[u8], diff: &FileDiff) -> Box<[u8]> {
+        let mut out = Vec::new();
+        let mut absolute_offset = 0;
+        let mut start_of_content = 0;
+
+        for hunk in diff.hunks.iter() {
+            absolute_offset += hunk.offset;
+
+            if absolute_offset > start_of_content {
+                out.extend_from_slice(&base[start_of_content..absolute_offset]);
+            }
+
+            out.extend_from_slice(&hunk.content_after);
+
+            start_of_content = absolute_offset + hunk.len_before;
+        }
+
+        if start_of_content < base.len() {
+            out.extend_from_slice(&base[start_of_content..]);
+        }
+
+        out.into_boxed_slice()
+    }
+
+    #[test]
+    fn test_apply_diff() {
+        let base: Box<[u8]> =
+            Box::from("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ".as_bytes());
+        let answer: Box<[u8]> =
+            Box::from("1112cdi3456nopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ".as_bytes());
+
+        let diff = FileDiff::new(Box::from([
+            Hunk {
+                content_after: Box::from("111".as_bytes()),
+                len_before: 2,
+                offset: 0,
+            },
+            Hunk {
+                content_after: Box::from("2".as_bytes()),
+                len_before: 0,
+                offset: 2,
+            },
+            Hunk {
+                content_after: Box::from("".as_bytes()),
+                len_before: 4,
+                offset: 2,
+            },
+            Hunk {
+                content_after: Box::from("3456".as_bytes()),
+                len_before: 4,
+                offset: 5,
+            },
+        ]));
+
+        let result = apply_diff(&base, &diff);
+
+        assert_eq!(result, answer)
+    }
+
     #[test]
     fn test_unify_fuzzy() {
-        rand
+        let mut rng = SimpleRng { state: 42 };
+
+        let generate_base = |rng: &mut SimpleRng| {
+            let len = std::cmp::min(std::cmp::max(rng.next_u8() as usize, 5), 220);
+            let base: Box<[u8]> = std::iter::repeat_with(|| rng.next_u8())
+                .take(len as usize)
+                .collect();
+            base
+        };
+
+        let generate_diff = |rng: &mut SimpleRng, len: usize| {
+            let mut generate_hunk = |min_offset, offset_range, max_remove| {
+                let offset = min_offset + rng.next_u8() as usize % (offset_range + 1);
+                let len_before = std::cmp::min(rng.next_u8() as usize, max_remove);
+
+                let len = rng.next_u8() as usize % 15;
+                let content: Box<[u8]> = std::iter::repeat_with(|| rng.next_u8())
+                    .take(len as usize)
+                    .collect();
+
+                Hunk {
+                    content_after: content,
+                    len_before: len_before as usize,
+                    offset: offset as usize,
+                }
+            };
+
+            let mut diff = Vec::new();
+            let mut offset = 0;
+            let mut prev_remove = 0;
+            while offset + prev_remove + 1 < len {
+                let available = len - (offset + prev_remove + 1);
+                let min_offset = prev_remove + 1;
+                let range = available % 12;
+                let remove = (available - range) % 9;
+
+                let hunk = generate_hunk(min_offset, range, remove);
+                offset += hunk.offset;
+                prev_remove = hunk.len_before;
+                diff.push(hunk);
+            }
+
+            diff
+        };
+
+        for i in 0..1000 {
+            let base = generate_base(&mut rng);
+            let a_diff = generate_diff(&mut rng, base.len());
+            let a_file_diff = FileDiff {
+                hunks: a_diff.into_boxed_slice(),
+            };
+            let result = apply_diff(&base, &a_file_diff);
+
+            let b_diff = generate_diff(&mut rng, result.len());
+            let b_file_diff = FileDiff {
+                hunks: b_diff.into_boxed_slice(),
+            };
+            let true_result = apply_diff(&result, &b_file_diff);
+
+            let result = apply_diff(&base, &a_file_diff.unify(b_file_diff));
+
+            assert_eq!(
+                true_result, result,
+                "Unify Fuzzing failed on iteration: {}",
+                i
+            );
+        }
     }
 }
