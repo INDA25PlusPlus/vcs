@@ -1,15 +1,20 @@
 use bytes::Bytes;
 
-/// A single edit operation in the op stream.
+/// A single edit operation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Op {
+    /// Keep this many source bytes unchanged.
     Keep(usize),
+    /// Delete this many source bytes.
     Delete(usize),
+    /// Insert these bytes at the current position.
     Insert(Bytes),
 }
 
 impl Op {
-    /// Splits off the first `len` units from this op.
+    /// Splits off the first `len` units from this [`Op`].
+    ///
+    /// `len` must be smaller than the current [`Op`] length.
     pub fn split_prefix(&mut self, len: usize) -> Op {
         debug_assert!(len < self.len());
         match self {
@@ -28,7 +33,7 @@ impl Op {
         }
     }
 
-    /// Returns the op length.
+    /// Returns the length contributed by this [`Op`].
     pub fn len(&self) -> usize {
         match self {
             Op::Keep(len) | Op::Delete(len) => *len,
@@ -53,6 +58,8 @@ impl<I: Iterator<Item = Op>> OpCursor<I> {
     }
 
     /// Pulls up to `amount` units from the next op.
+    ///
+    /// If the underlying iterator is exhausted, the remainder is treated as an implicit keep.
     pub(crate) fn pull(&mut self, amount: usize) -> Option<Op> {
         let mut current = match self.pending.take().or_else(|| self.next()) {
             Some(op) => op,

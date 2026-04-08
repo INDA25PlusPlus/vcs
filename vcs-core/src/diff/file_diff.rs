@@ -7,13 +7,16 @@ use crate::{
     diff::{Compact, Hunk, Op, OpStreamExt},
 };
 
-/// Byte-level edits for a single file.
-#[derive(Debug, Eq, PartialEq, Clone)]
+/// Stored diff for a single file.
+///
+/// `FileDiff` stores edits as hunks. This is the representation that should usually be persisted,
+/// hashed, and passed through the higher-level API.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct FileDiff {
     pub hunks: Box<[Hunk]>,
 }
 
-/// Converts hunks into an op stream.
+/// Converts hunks into an [`Op`] stream.
 struct HunkOpStream<I: Iterator<Item = Hunk>> {
     hunks: I,
     pending_ops: VecDeque<Op>,
@@ -21,11 +24,14 @@ struct HunkOpStream<I: Iterator<Item = Hunk>> {
 }
 
 impl FileDiff {
+    /// Creates a [`FileDiff`] from hunks.
     pub fn new(hunks: Box<[Hunk]>) -> Self {
         Self { hunks }
     }
 
-    /// Exposes the diff as a lazy op stream.
+    /// Converts this [`FileDiff`] into a lazy stream of [`Op`].
+    ///
+    /// The [`Op`] stream is the advanced representation used for doing transformative operations on the [`FileDiff`].
     pub fn into_ops(self) -> impl Iterator<Item = Op> {
         HunkOpStream {
             hunks: self.hunks.into_iter(),
@@ -34,7 +40,9 @@ impl FileDiff {
         }
     }
 
-    /// Composes `self` with `other` and materializes the result back into hunks.
+    /// Sequentially composes `self` and `other` and materializes the result as a new [`FileDiff`].
+    ///
+    /// If `self` maps `A -> B` and `other` maps `B -> C`, the result maps `A -> C`.
     pub fn compose(self, other: FileDiff) -> Self {
         self.into_ops()
             .compose(other.into_ops())
@@ -44,11 +52,9 @@ impl FileDiff {
 }
 
 impl<I: Iterator<Item = Op>> Compact<I> {
-    /// Transforms a compacted op stream into a 'FileDiff'
+    /// Materializes a compacted op stream into the standard [`FileDiff`] representation.
     ///
-    /// This assumes the stream has already been compacted:
-    /// one `Keep` op between edit regions, and each edit region consists of at the most
-    /// one `Delete` followed by at most one `Insert`.
+    /// This assumes the stream has already been compacted.
     pub fn into_file_diff(self) -> FileDiff {
         let mut hunks = Vec::new();
         let mut offset = 0usize;
@@ -61,8 +67,8 @@ impl<I: Iterator<Item = Op>> Compact<I> {
                     return;
                 }
 
-                // Hunk offsets are stored relative to the previous hunk's offset, independent of len_before
-                // 'Keep' op on the other hand does depend on 'Delete' op
+                // Hunk offsets are stored relative to the previous hunk. After flushing a hunk,
+                // the next offset base starts with this hunk's deleted length.
                 let next_offset = *delete_len;
                 hunks.push(Hunk {
                     offset: std::mem::take(offset),
@@ -119,7 +125,8 @@ impl<I: Iterator<Item = Hunk>> Iterator for HunkOpStream<I> {
 
         let hunk = self.hunks.next()?;
 
-        // Offsets are stored relative to the previous hunk, including its deletion span.
+        // Hunk offsets are stored relative to the previous hunk, while keep lengths are measured
+        // against the source stream. Subtract the previous deletion span to recover the keep run.
         let keep_len = hunk.offset.saturating_sub(self.previous_deleted_len);
 
         if keep_len > 0 {

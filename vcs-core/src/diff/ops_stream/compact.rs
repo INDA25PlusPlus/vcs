@@ -2,7 +2,12 @@ use std::{collections::VecDeque, mem};
 
 use crate::diff::Op;
 
-/// Compacts an op stream into the fewest possible operations still representing the same stream
+/// Compacts an [`Op`] stream into the fewest possible [`Op`] while still representing the same diff.
+///
+/// A compacted stream uses the standard op-stream form:
+/// - consecutive [`Op::Keep`] runs are merged
+/// - every edit region between two keeps is emitted as at most one [`Op::Delete`]
+///   followed by one [`Op::Insert`]
 pub struct Compact<I: Iterator<Item = Op>> {
     iter: I,
     accumulation: Accumulation,
@@ -17,7 +22,7 @@ enum Accumulation {
 }
 
 impl Accumulation {
-    /// Flushes the current run into canonical ops and clears the accumulator.
+    /// Flushes the current run into compacted ops and clears the accumulator.
     fn flush_into(&mut self, pending: &mut VecDeque<Op>) {
         match mem::replace(self, Self::Empty) {
             Self::Empty => {}

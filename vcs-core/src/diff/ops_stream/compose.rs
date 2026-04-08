@@ -1,6 +1,6 @@
 use crate::diff::{Op, ops_stream::types::OpCursor};
 
-/// Lazily composes two op streams.
+/// Lazily composes two op streams into one equivalent stream.
 pub struct Compose<A: Iterator<Item = Op>, B: Iterator<Item = Op>> {
     left: OpCursor<A>,
     right: OpCursor<B>,
@@ -8,6 +8,11 @@ pub struct Compose<A: Iterator<Item = Op>, B: Iterator<Item = Op>> {
 }
 
 impl<A: Iterator<Item = Op>, B: Iterator<Item = Op>> Compose<A, B> {
+    /// Creates a lazy composition of two op streams.
+    ///
+    /// `left` is interpreted first and must map `A -> B`.
+    /// `right` is interpreted second and must map `B -> C`.
+    /// The resulting iterator yields the direct `A -> C` edit stream.
     pub fn new(left: A, right: B) -> Compose<A, B> {
         Compose {
             left: OpCursor::new(left),

@@ -1,11 +1,11 @@
 use crate::diff::{FileDiff, Hunk};
 
-/// Builds a file diff from source and destination bytes.
+/// Builds an initial [`FileDiff`] from source and destination bytes.
 pub trait DiffPolicy {
     fn diff(&self, src: &[u8], dst: &[u8]) -> FileDiff;
 }
 
-/// Replaces the whole file with a single hunk.
+/// Trivial policy that replaces the whole file with a single hunk.
 pub struct NaiveDiff;
 
 impl DiffPolicy for NaiveDiff {
@@ -21,6 +21,7 @@ impl DiffPolicy for NaiveDiff {
     }
 }
 
+/// Placeholder for a future Myers diff implementation.
 pub struct MyersDiff;
 
 impl DiffPolicy for MyersDiff {
