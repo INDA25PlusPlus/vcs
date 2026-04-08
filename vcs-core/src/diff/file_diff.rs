@@ -44,72 +44,68 @@ impl FileDiff {
 }
 
 impl<I: Iterator<Item = Op>> Compact<I> {
+    /// Transforms a compacted op stream into a 'FileDiff'
+    ///
+    /// This assumes the stream has already been compacted:
+    /// one `Keep` op between edit regions, and each edit region consists of at the most
+    /// one `Delete` followed by at most one `Insert`.
     pub fn into_file_diff(self) -> FileDiff {
         let mut hunks = Vec::new();
-        let mut open_hunk: Option<Hunk> = None;
-        let mut pending_offset = 0;
-        let mut inserted_bytes = Vec::new();
+        let mut offset = 0usize;
+        let mut len_before = 0usize;
+        let mut content_after = Vec::new();
 
-        for op in self.iter {
+        let mut flush_hunk =
+            |offset: &mut usize, delete_len: &mut usize, insert_bytes: &mut Vec<u8>| {
+                if *delete_len == 0 && insert_bytes.is_empty() {
+                    return;
+                }
+
+                // Hunk offsets are stored relative to the previous hunk's offset, independent of len_before
+                // 'Keep' op on the other hand does depend on 'Delete' op
+                let next_offset = *delete_len;
+                hunks.push(Hunk {
+                    offset: std::mem::take(offset),
+                    len_before: std::mem::take(delete_len),
+                    content_after: std::mem::take(insert_bytes).into_boxed_slice(),
+                });
+                *offset = next_offset;
+            };
+
+        for op in self {
             match op {
                 Op::Keep(len) => {
-                    if let Some(mut hunk) = open_hunk.take() {
-                        // A keep ends the current hunk, so flush any buffered inserts.
-                        if !inserted_bytes.is_empty() {
-                            hunk.content_after = inserted_bytes.into_boxed_slice();
-                        }
-                        hunks.push(hunk);
-                        inserted_bytes = Vec::new();
-                    }
-
-                    pending_offset += len;
+                    flush_hunk(&mut offset, &mut len_before, &mut content_after);
+                    offset += len;
                 }
                 Op::Delete(len) => {
-                    let mut hunk = open_hunk.unwrap_or_else(|| {
-                        // Start a new hunk at the current gap.
-                        let new_hunk = Hunk {
-                            offset: pending_offset,
-                            len_before: 0,
-                            content_after: Box::new([]),
-                        };
-                        pending_offset = 0;
-                        new_hunk
-                    });
-
-                    hunk.len_before += len;
-                    pending_offset += len;
-
-                    open_hunk = Some(hunk);
+                    debug_assert_eq!(
+                        len_before, 0,
+                        "compact streams emit at most one delete per edit region"
+                    );
+                    debug_assert!(
+                        content_after.is_empty(),
+                        "compact streams must emit delete before insert within an edit region"
+                    );
+                    len_before = len;
                 }
                 Op::Insert(buf) => {
-                    let hunk = open_hunk.unwrap_or_else(|| {
-                        // Inserts at the same position are merged into one hunk.
-                        let new_hunk = Hunk {
-                            offset: pending_offset,
-                            len_before: 0,
-                            content_after: Box::new([]),
-                        };
-                        pending_offset = 0;
-                        new_hunk
-                    });
-
-                    inserted_bytes.extend_from_slice(&buf);
-
-                    open_hunk = Some(hunk);
+                    debug_assert!(
+                        !buf.is_empty(),
+                        "compact streams must not contain empty insert operations"
+                    );
+                    debug_assert!(
+                        content_after.is_empty(),
+                        "compact streams emit at most one insert per edit region"
+                    );
+                    // TODO: This causes unnecessary copying, fix this
+                    content_after = buf.to_vec();
                 }
             }
         }
+        flush_hunk(&mut offset, &mut len_before, &mut content_after);
 
-        if let Some(mut hunk) = open_hunk {
-            if !inserted_bytes.is_empty() {
-                hunk.content_after = inserted_bytes.into_boxed_slice();
-            }
-            hunks.push(hunk);
-        }
-
-        FileDiff {
-            hunks: hunks.into_boxed_slice(),
-        }
+        FileDiff::new(hunks.into_boxed_slice())
     }
 }
 
@@ -207,6 +203,7 @@ mod tests {
             Op::Delete(4),
             Op::Keep(1),
             Op::Delete(4),
+            Op::Keep(0),
             Op::Insert(Bytes::from_static(b"3456")),
         ];
 
@@ -232,5 +229,34 @@ mod tests {
                 },
             ]))
         );
+    }
+
+    #[test]
+    fn test_compact_stream_to_file_diff_insert_only() {
+        let ops = vec![
+            Op::Keep(3),
+            Op::Insert(Bytes::from_static(b"abc")),
+            Op::Keep(2),
+        ];
+
+        let diff = ops.into_iter().compact().into_file_diff();
+
+        assert_eq!(
+            diff,
+            FileDiff::new(Box::from([Hunk {
+                offset: 3,
+                len_before: 0,
+                content_after: Box::from("abc".as_bytes()),
+            }]))
+        );
+    }
+
+    #[test]
+    fn test_compact_stream_to_file_diff_identity() {
+        let ops = vec![Op::Keep(3), Op::Keep(2), Op::Keep(4)];
+
+        let diff = ops.into_iter().compact().into_file_diff();
+
+        assert_eq!(diff, FileDiff::new(Box::new([])));
     }
 }

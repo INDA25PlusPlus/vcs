@@ -4,7 +4,7 @@ use crate::diff::Op;
 
 /// Compacts an op stream into the fewest possible operations still representing the same stream
 pub struct Compact<I: Iterator<Item = Op>> {
-    pub iter: I,
+    iter: I,
     accumulation: Accumulation,
     pending: VecDeque<Op>,
 }
@@ -90,6 +90,7 @@ impl Accumulation {
 }
 
 impl<I: Iterator<Item = Op>> Compact<I> {
+    /// Creates a compacting adaptor over an op stream.
     pub fn new(iter: I) -> Compact<I> {
         Compact {
             iter,
@@ -129,7 +130,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_normalize_consecutive_keep() {
+    fn test_compact_consecutive_keep() {
         let ops = [
             Op::Delete(20),
             Op::Keep(10),
@@ -152,7 +153,7 @@ mod tests {
     }
 
     #[test]
-    fn test_normalize_consecutive_delete() {
+    fn test_compact_consecutive_delete() {
         let ops = [
             Op::Delete(20),
             Op::Delete(10),
@@ -182,7 +183,7 @@ mod tests {
     }
 
     #[test]
-    fn test_normalize_consecutive_insert() {
+    fn test_compact_consecutive_insert() {
         let ops = [
             Op::Insert(Bytes::from_static(b"abc")),
             Op::Insert(Bytes::from_static(b"123")),
@@ -211,7 +212,7 @@ mod tests {
     }
 
     #[test]
-    fn test_normalize_ops_of_zero_len() {
+    fn test_compact_ops_of_zero_len() {
         let ops = [
             Op::Delete(10),
             Op::Insert(Bytes::from_static(b"")),
@@ -229,7 +230,7 @@ mod tests {
     }
 
     #[test]
-    fn test_normalize_arbitrary_case() {
+    fn test_compact_arbitrary_case() {
         let ops = [
             Op::Delete(10),
             Op::Insert(Bytes::from_static(b"Hello")),
