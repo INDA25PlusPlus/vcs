@@ -4,7 +4,7 @@ use bytes::Bytes;
 
 use crate::{
     crypto::{CryptoHash, CryptoHashable},
-    diff::{Hunk, Op, OpStreamExt},
+    diff::{Compact, Hunk, Op, OpStreamExt},
 };
 
 /// Byte-level edits for a single file.
@@ -36,18 +36,21 @@ impl FileDiff {
 
     /// Composes `self` with `other` and materializes the result back into hunks.
     pub fn compose(self, other: FileDiff) -> Self {
-        self.into_ops().compose(other.into_ops()).collect()
+        self.into_ops()
+            .compose(other.into_ops())
+            .compact()
+            .into_file_diff()
     }
 }
 
-impl FromIterator<Op> for FileDiff {
-    fn from_iter<T: IntoIterator<Item = Op>>(ops: T) -> Self {
+impl<I: Iterator<Item = Op>> Compact<I> {
+    pub fn into_file_diff(self) -> FileDiff {
         let mut hunks = Vec::new();
         let mut open_hunk: Option<Hunk> = None;
         let mut pending_offset = 0;
         let mut inserted_bytes = Vec::new();
 
-        for op in ops {
+        for op in self.iter {
             match op {
                 Op::Keep(len) => {
                     if let Some(mut hunk) = open_hunk.take() {
@@ -104,7 +107,7 @@ impl FromIterator<Op> for FileDiff {
             hunks.push(hunk);
         }
 
-        Self {
+        FileDiff {
             hunks: hunks.into_boxed_slice(),
         }
     }
@@ -207,7 +210,7 @@ mod tests {
             Op::Insert(Bytes::from_static(b"3456")),
         ];
 
-        let diff: FileDiff = ops.into_iter().collect();
+        let diff: FileDiff = ops.into_iter().compact().into_file_diff();
 
         assert_eq!(
             diff,

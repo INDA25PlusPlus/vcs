@@ -7,6 +7,16 @@ pub struct Compose<A: Iterator<Item = Op>, B: Iterator<Item = Op>> {
     pending_right: Option<Op>,
 }
 
+impl<A: Iterator<Item = Op>, B: Iterator<Item = Op>> Compose<A, B> {
+    pub fn new(left: A, right: B) -> Compose<A, B> {
+        Compose {
+            left: OpCursor::new(left),
+            right: OpCursor::new(right),
+            pending_right: None,
+        }
+    }
+}
+
 impl<A: Iterator<Item = Op>, B: Iterator<Item = Op>> Iterator for Compose<A, B> {
     type Item = Op;
 
@@ -74,23 +84,6 @@ impl<A: Iterator<Item = Op>, B: Iterator<Item = Op>> Iterator for Compose<A, B> 
         }
     }
 }
-
-pub trait OpStreamExt: Iterator<Item = Op> + Sized {
-    /// Composes `self` with `other`.
-    ///
-    /// The first iterator describes edits from `A` to `B`.
-    /// The second iterator describes edits from `B` to `C`.
-    /// The composed iterator describes the direct edit stream from `A` to `C`.
-    fn compose<O: Iterator<Item = Op>>(self, other: O) -> Compose<Self, O> {
-        Compose {
-            left: OpCursor::new(self),
-            right: OpCursor::new(other),
-            pending_right: None,
-        }
-    }
-}
-
-impl<I: Iterator<Item = Op>> OpStreamExt for I {}
 
 #[cfg(test)]
 mod tests {
@@ -181,22 +174,16 @@ mod tests {
         // Two empty streams
         let empty1 = [].into_iter();
         let empty2 = [].into_iter();
-        let result: Vec<Op> = empty1.compose(empty2).collect();
+        let result: Vec<Op> = Compose::new(empty1, empty2).collect();
         assert!(result.is_empty());
 
         // One empty stream
         let stream: Vec<Op> = generate_op_stream(&mut rng, 1024).collect();
         let empty: Vec<Op> = [].into_iter().collect();
-        let result1: Vec<Op> = stream
-            .clone()
-            .into_iter()
-            .compose(empty.clone().into_iter())
-            .collect();
-        let result2: Vec<Op> = empty
-            .clone()
-            .into_iter()
-            .compose(stream.clone().into_iter())
-            .collect();
+        let result1: Vec<Op> =
+            Compose::new(stream.clone().into_iter(), empty.clone().into_iter()).collect();
+        let result2: Vec<Op> =
+            Compose::new(empty.clone().into_iter(), stream.clone().into_iter()).collect();
         assert_eq!(result1, stream);
         assert_eq!(result2, stream);
     }
@@ -218,10 +205,10 @@ mod tests {
             let c_vec: Vec<_> = generate_op_stream(&mut rng, after_b.len()).collect();
             let after_c = apply_ops(&after_b, c_vec.clone());
 
-            let composed = a_vec
-                .into_iter()
-                .compose(b_vec.into_iter())
-                .compose(c_vec.into_iter());
+            let composed = Compose::new(
+                Compose::new(a_vec.into_iter(), b_vec.into_iter()),
+                c_vec.into_iter(),
+            );
             let applied_composed = apply_ops(&base, composed);
 
             assert_eq!(

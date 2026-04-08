@@ -7,5 +7,5 @@ pub mod repo_diff;
 pub use diff_policy::{DiffPolicy, MyersDiff, NaiveDiff};
 pub use file_diff::FileDiff;
 pub use hunk::Hunk;
-pub use ops_stream::{Op, OpStreamExt};
+pub use ops_stream::{Compact, Compose, Op, OpStreamExt};
 pub use repo_diff::RepoDiff;
