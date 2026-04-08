@@ -2,10 +2,10 @@ use crate::diff::{FileDiff, Hunk};
 
 /// Builds a file diff from source and destination bytes.
 pub trait DiffPolicy {
-    fn diff(&self, src_diff: &[u8], dst_diff: &[u8]) -> FileDiff;
+    fn diff(&self, src: &[u8], dst: &[u8]) -> FileDiff;
 }
 
-/// Emits a single hunk for the whole file.
+/// Replaces the whole file with a single hunk.
 pub struct NaiveDiff;
 
 impl DiffPolicy for NaiveDiff {
@@ -24,7 +24,7 @@ impl DiffPolicy for NaiveDiff {
 pub struct MyersDiff;
 
 impl DiffPolicy for MyersDiff {
-    fn diff(&self, src_diff: &[u8], dst_diff: &[u8]) -> FileDiff {
+    fn diff(&self, _src: &[u8], _dst: &[u8]) -> FileDiff {
         todo!("Implement 'Myers Diff Algorithm'")
     }
 }
@@ -43,7 +43,7 @@ mod tests {
     fn test_naive_diff_short() {
         let differ = NaiveDiff;
 
-        // NaiveDiff always replaces the entire source in one hunk.
+        // NaiveDiff always emits one full-file replacement hunk.
         for (src, dst) in SRC_DST_DATA {
             let diff = differ.diff(src, dst);
             assert!(diff.hunks.len() > 0);
