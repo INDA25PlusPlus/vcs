@@ -3,7 +3,8 @@ mod index;
 
 use crate::commit::{CommitHeader, CommitId, CommitMetadata};
 use crate::crypto::CryptoHash;
-use crate::diff::{FileDiff, RepoDiff};
+use crate::diff::file_diff::FileDiff;
+use crate::diff::repo_diff::RepoDiff;
 use crate::path::RepoPath;
 use crate::repo::head::Head;
 use crate::repo::index::Index;

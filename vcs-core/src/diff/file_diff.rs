@@ -4,7 +4,10 @@ use bytes::Bytes;
 
 use crate::{
     crypto::{CryptoHash, CryptoHashable},
-    diff::{Compact, Hunk, Op, OpStreamExt},
+    diff::{
+        hunk::Hunk,
+        ops_stream::{Op, OpStreamExt, compact::Compact},
+    },
 };
 
 /// Stored diff for a single file.

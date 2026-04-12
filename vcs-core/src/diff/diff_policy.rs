@@ -1,4 +1,4 @@
-use crate::diff::{FileDiff, Hunk};
+use crate::diff::{file_diff::FileDiff, hunk::Hunk};
 
 /// Builds an initial [`FileDiff`] from source and destination bytes.
 pub trait DiffPolicy {

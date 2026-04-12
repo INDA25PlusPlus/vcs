@@ -1,4 +1,4 @@
-use crate::diff::{Op, ops_stream::types::OpCursor};
+use crate::diff::ops_stream::{Op, OpCursor};
 
 /// Lazily composes two op streams into one equivalent stream.
 pub struct Compose<A: Iterator<Item = Op>, B: Iterator<Item = Op>> {
