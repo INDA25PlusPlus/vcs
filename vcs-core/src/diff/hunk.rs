@@ -18,10 +18,15 @@ pub struct Hunk {
 
 impl Debug for Hunk {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Hunk")
-            .field("offset", &self.offset)
-            .field("len_before", &self.len_before)
-            .field("content_after", &self.content_after)
-            .finish()
+        let mut dbg = f.debug_struct("Hunk");
+        dbg.field("offset", &self.offset);
+        dbg.field("len_before", &self.len_before);
+
+        match std::str::from_utf8(&self.content_after) {
+            Ok(text) => dbg.field("content_after", &text),
+            Err(_) => dbg.field("content_after", &self.content_after),
+        };
+
+        dbg.finish()
     }
 }
