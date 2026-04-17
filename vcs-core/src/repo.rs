@@ -1,4 +1,3 @@
-mod head;
 mod index;
 
 use crate::commit::{CommitHeader, CommitId, CommitMetadata};
@@ -6,7 +5,6 @@ use crate::crypto::CryptoHash;
 use crate::diff::file_diff::FileDiff;
 use crate::diff::repo_diff::RepoDiff;
 use crate::path::RepoPath;
-use crate::repo::head::Head;
 use crate::repo::index::Index;
 use crate::storage::{LazyStorage, Storage};
 use std::error::Error;
@@ -47,7 +45,7 @@ where
     type StorageError: Error + Send;
 }
 
-pub struct LocalRepo<'repo, H: CryptoHash, S>
+pub struct LocalRepo<H: CryptoHash, S>
 where
     H: Hash + Eq + Send + Sync,
     S: RepoStorage<H>,
@@ -55,7 +53,7 @@ where
 {
     storage: S,
 
-    head: Head<'repo, H, S>,
+    head: CommitId,
 
     commit_headers: LazyStorage<CommitId, CommitHeader<H>, S>,
     commit_metadatas: LazyStorage<CommitId, CommitMetadata<H>, S>,
@@ -64,13 +62,13 @@ where
     file_diffs: LazyStorage<H, FileDiff, S>,
 }
 
-impl<'repo, H: CryptoHash, S> LocalRepo<'repo, H, S>
+impl<'repo, H: CryptoHash, S> LocalRepo<H, S>
 where
     H: Hash + Eq + Send + Sync,
     S: RepoStorage<H> + Send + Sync,
     S::StorageError: Error + Send,
 {
-    pub fn head(&self) -> &Head<'repo, H, S> {
+    pub fn head(&self) -> &CommitId {
         &self.head
     }
 
