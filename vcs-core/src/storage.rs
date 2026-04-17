@@ -2,6 +2,7 @@ pub mod in_memory_storage;
 
 use std::error::Error;
 use std::hash::Hash;
+use std::sync::Arc;
 
 pub type StorageResult<T, E> = Result<T, StorageError<E>>;
 
@@ -28,7 +29,7 @@ pub struct LazyStorage<K: Eq + Hash, V, S: Storage<K, V>> {
     // elsa::sync::FrozenMap is used in order to allow concurrent reads and
     // writes by disallowing mutation or deletion of existing entries
     items: elsa::sync::FrozenMap<K, Box<V>>,
-    storage: S,
+    storage: Arc<S>,
 }
 
 impl<K: Eq + Hash + Send + Sync, V: Send + Sync, S: Storage<K, V> + Send + Sync>
@@ -37,7 +38,7 @@ where
     S::Error: Send,
 {
     /// Create a new map backed by `storage`
-    pub fn new(storage: S) -> LazyStorage<K, V, S> {
+    pub fn new(storage: Arc<S>) -> LazyStorage<K, V, S> {
         LazyStorage {
             items: elsa::sync::FrozenMap::default(),
             storage,
@@ -94,7 +95,7 @@ mod tests {
         //! Test that futures returned from LazyStorage::get actually implement
         //! Send. This is required to spawn futures in tokio::spawn, for example.
 
-        let storage = LazyStorage::new(TestStorage);
+        let storage = LazyStorage::new(Arc::new(TestStorage));
 
         fn require_send<T: Send + Sized>(_: T) {}
 
