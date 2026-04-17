@@ -39,7 +39,7 @@ pub mod timestamp;
 use crate::commit::timestamp::Timestamp;
 use crate::crypto::{CryptoHash, CryptoHashable, SignContext, SignedHash};
 use crate::crypto_hash;
-use crate::repo::RepoStorage;
+use crate::repo::repo_storage::RepoStorage;
 use std::hash::Hash;
 
 pub type CommitId = u64;

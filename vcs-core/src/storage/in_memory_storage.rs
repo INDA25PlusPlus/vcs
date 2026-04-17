@@ -1,4 +1,4 @@
-use crate::storage::Storage;
+use crate::storage::{Storage, StorageError, StorageResult};
 use std::convert::Infallible;
 use std::hash::Hash;
 
@@ -18,8 +18,11 @@ impl<K: Eq + Hash + Clone, V: Clone> InMemoryStorage<K, V> {
 impl<K: Eq + Hash + Clone, V: Clone> Storage<K, V> for InMemoryStorage<K, V> {
     type Error = Infallible;
 
-    async fn load(&self, key: &K) -> Result<Option<V>, Self::Error> {
-        Ok(self.map.get(key).map(|v| v.clone()))
+    async fn load(&self, key: &K) -> StorageResult<V, Self::Error> {
+        self.map
+            .get(key)
+            .map(|v| v.clone())
+            .ok_or(StorageError::MissingObject)
     }
 
     async fn store(&self, key: &K, value: &V) -> Result<(), Self::Error> {

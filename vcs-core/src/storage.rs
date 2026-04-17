@@ -1,14 +1,23 @@
 pub mod in_memory_storage;
 
+use std::error::Error;
 use std::hash::Hash;
+
+pub type StorageResult<T, E> = Result<T, StorageError<E>>;
+
+#[derive(thiserror::Error, Debug)]
+pub enum StorageError<E> {
+    #[error("internal storage error: {0}")]
+    InternalError(E),
+    #[error("entry does not exist")]
+    MissingObject,
+}
 
 /// Trait representing an external storage such as a file system
 pub trait Storage<K, V> {
     type Error;
 
-    /// returns `Ok(None)` when a key is not present. Storage backends should
-    /// reserve `Err` for actual storage failures.
-    async fn load(&self, key: &K) -> Result<Option<V>, Self::Error>;
+    async fn load(&self, key: &K) -> StorageResult<V, Self::Error>;
     async fn store(&self, key: &K, value: &V) -> Result<(), Self::Error>;
 }
 
@@ -36,15 +45,13 @@ where
     }
 
     /// Get the value at `key` if it is loaded, or try to load it from storage
-    pub async fn get(&self, key: K) -> Result<Option<&V>, S::Error> {
+    pub async fn get(&self, key: K) -> StorageResult<&V, S::Error> {
         if let Some(value) = self.items.get(&key) {
-            return Ok(Some(value));
+            return Ok(value);
         }
-        let Some(value) = self.storage.load(&key).await? else {
-            return Ok(None);
-        };
+        let value = self.storage.load(&key).await?;
         let value_ref = self.items.insert(key, Box::new(value));
-        return Ok(Some(value_ref));
+        Ok(value_ref)
     }
 
     /// Attempt to insert `value` at `key`. Does nothing if `key` already
@@ -72,9 +79,11 @@ mod tests {
 
     impl Storage<(), ()> for TestStorage {
         type Error = ();
-        async fn load(&self, _key: &()) -> Result<Option<()>, Self::Error> {
-            Ok(Some(()))
+
+        async fn load(&self, _key: &()) -> StorageResult<(), Self::Error> {
+            Ok(())
         }
+
         async fn store(&self, _key: &(), _value: &()) -> Result<(), Self::Error> {
             Ok(())
         }
