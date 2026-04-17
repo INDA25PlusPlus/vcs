@@ -8,30 +8,9 @@ use crate::diff::repo_diff::RepoDiff;
 use crate::path::RepoPath;
 use crate::repo::index::Index;
 use crate::repo::repo_storage::RepoStorage;
-use crate::storage::{LazyStorage, Storage};
+use crate::storage::{LazyStorage, StorageResult};
 use std::error::Error;
 use std::hash::Hash;
-
-pub type RepoResult<T, E: Error + Send> = Result<T, RepoError<E>>;
-
-#[derive(thiserror::Error, Debug)]
-pub enum RepoError<E: Error + Send> {
-    #[error("storage error: {0}")]
-    StorageError(E),
-    #[error("object missing from database")]
-    MissingObject,
-}
-
-fn repo_result<T, E: Error>(result: Result<Option<T>, E>) -> RepoResult<T, E>
-where
-    E: Send,
-{
-    match result {
-        Ok(Some(ok)) => Ok(ok),
-        Ok(None) => Err(RepoError::MissingObject),
-        Err(err) => Err(RepoError::StorageError(err)),
-    }
-}
 
 pub struct LocalRepo<H: CryptoHash, S>
 where
@@ -60,18 +39,21 @@ where
         &self.head
     }
 
-    pub async fn commit_header(&self, id: CommitId) -> RepoResult<&CommitHeader<H>, S::RepoError> {
-        repo_result(self.commit_headers.get(id).await)
+    pub async fn commit_header(
+        &self,
+        id: CommitId,
+    ) -> StorageResult<&CommitHeader<H>, S::RepoError> {
+        self.commit_headers.get(id).await
     }
 
     pub async fn commit_metadata(
         &self,
         id: CommitId,
-    ) -> RepoResult<&CommitMetadata<H>, S::RepoError> {
-        repo_result(self.commit_metadatas.get(id).await)
+    ) -> StorageResult<&CommitMetadata<H>, S::RepoError> {
+        self.commit_metadatas.get(id).await
     }
 
-    pub async fn index(&self, id: CommitId) -> RepoResult<&Index<H>, S::RepoError> {
+    pub async fn index(&self, id: CommitId) -> StorageResult<&Index<H>, S::RepoError> {
         todo!()
         // repo_result(<S as Storage<CommitId, Index<H>>>::load(self, &id).await)
     }
