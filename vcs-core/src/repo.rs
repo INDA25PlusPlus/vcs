@@ -13,6 +13,12 @@ use std::error::Error;
 use std::hash::Hash;
 use std::sync::Arc;
 
+#[derive(Clone, Debug)]
+pub(crate) struct RepoHeader {
+    pub head: CommitId,
+    pub next_commit_id: CommitId,
+}
+
 pub struct LocalRepo<H: CryptoHash, S>
 where
     H: Hash + Eq + Send + Sync,
@@ -21,7 +27,7 @@ where
 {
     storage: Arc<S>,
 
-    head: CommitId,
+    header: RepoHeader,
 
     commit_headers: LazyStorage<CommitId, CommitHeader<H>, S>,
     commit_metadatas: LazyStorage<CommitId, CommitMetadata<H>, S>,
@@ -30,14 +36,14 @@ where
     file_diffs: LazyStorage<H, FileDiff, S>,
 }
 
-impl<'repo, H: CryptoHash, S> LocalRepo<H, S>
+impl<H: CryptoHash, S> LocalRepo<H, S>
 where
     H: Hash + Eq + Send + Sync,
     S: RepoStorage<H> + Send + Sync,
     S::RepoError: Error + Send,
 {
     pub fn head(&self) -> &CommitId {
-        &self.head
+        &self.header.head
     }
 
     pub async fn commit_header(
