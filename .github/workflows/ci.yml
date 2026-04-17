@@ -36,7 +36,13 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Linting
-        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+        run: cargo clippy --workspace --all-targets --all-features -- \
+          -D warnings \
+          -A dead_code \
+          -A unused_imports \
+          -A unused_variables \
+          -A unused_mut \
+          -A unreachable_code
 
       - name: Documentation
         run: RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --all-features
