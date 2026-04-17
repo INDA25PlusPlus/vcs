@@ -3,7 +3,6 @@ pub mod cache;
 
 use std::error::Error;
 use std::hash::Hash;
-use std::sync::Arc;
 
 pub type StorageResult<T, E> = Result<T, StorageError<E>>;
 
@@ -21,4 +20,17 @@ pub trait Storage<K, V> {
 
     async fn load(&self, key: &K) -> StorageResult<V, Self::Error>;
     async fn store(&self, key: &K, value: &V) -> Result<(), Self::Error>;
+}
+
+pub trait SingletonStorage<V>: Storage<(), V>
+where
+    V: Sync,
+{
+    async fn load_singleton(&self) -> StorageResult<V, Self::Error> {
+        Storage::load(self, &()).await
+    }
+
+    async fn store_singleton(&self, value: &V) -> Result<(), Self::Error> {
+        Storage::store(self, &(), value).await
+    }
 }
