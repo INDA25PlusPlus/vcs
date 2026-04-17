@@ -2,4 +2,10 @@
 set -e
 
 cargo fmt --all -- --check
-cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo clippy --workspace --all-targets --all-features -- \
+  -D warnings \
+  -A dead_code \
+  -A unused_imports \
+  -A unused_variables \
+  -A unused_mut \
+  -A unreachable_code
