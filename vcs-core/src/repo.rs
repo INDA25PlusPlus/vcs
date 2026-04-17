@@ -11,6 +11,7 @@ use crate::repo::repo_storage::RepoStorage;
 use crate::storage::{LazyStorage, StorageResult};
 use std::error::Error;
 use std::hash::Hash;
+use std::sync::Arc;
 
 pub struct LocalRepo<H: CryptoHash, S>
 where
@@ -18,7 +19,7 @@ where
     S: RepoStorage<H>,
     S::RepoError: Error + Send,
 {
-    storage: S,
+    storage: Arc<S>,
 
     head: CommitId,
 
