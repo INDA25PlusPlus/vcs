@@ -8,7 +8,7 @@ use crate::path::RepoPath;
 use crate::repo::index::Index;
 use crate::repo::repo_storage::RepoStorage;
 use crate::revision::{Patch, RevisionHeader, RevisionId, RevisionMetadata};
-use crate::storage::{LazyStorage, StorageResult};
+use crate::storage::{StorageResult, cache::FrozenCache};
 use std::error::Error;
 use std::hash::Hash;
 use std::sync::Arc;
@@ -23,11 +23,11 @@ where
 
     head: RevisionId<H>,
 
-    revision_headers: LazyStorage<RevisionId<H>, RevisionHeader<H>, S>,
-    revision_metadatas: LazyStorage<RevisionId<H>, RevisionMetadata<H>, S>,
+    revision_headers: FrozenCache<RevisionId<H>, RevisionHeader<H>, S>,
+    revision_metadatas: FrozenCache<RevisionId<H>, RevisionMetadata<H>, S>,
 
-    repo_diffs: LazyStorage<H, RepoDiff<H>, S>,
-    file_diffs: LazyStorage<H, FileDiff, S>,
+    repo_diffs: FrozenCache<H, RepoDiff<H>, S>,
+    file_diffs: FrozenCache<H, FileDiff, S>,
 }
 
 impl<H: CryptoHash, S> LocalRepo<H, S>
