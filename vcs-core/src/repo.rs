@@ -1,4 +1,5 @@
 mod index;
+pub mod repo_storage;
 
 use crate::commit::{CommitHeader, CommitId, CommitMetadata};
 use crate::crypto::CryptoHash;
@@ -6,6 +7,7 @@ use crate::diff::file_diff::FileDiff;
 use crate::diff::repo_diff::RepoDiff;
 use crate::path::RepoPath;
 use crate::repo::index::Index;
+use crate::repo::repo_storage::RepoStorage;
 use crate::storage::{LazyStorage, Storage};
 use std::error::Error;
 use std::hash::Hash;
@@ -31,25 +33,11 @@ where
     }
 }
 
-pub trait RepoStorage<H: CryptoHash>:
-    Storage<CommitId, CommitHeader<H>, Error = Self::StorageError>
-    + Storage<CommitId, CommitMetadata<H>, Error = Self::StorageError>
-    + Storage<CommitId, Index<H>>
-    + Storage<H, RepoDiff<H>, Error = Self::StorageError>
-    + Storage<H, FileDiff, Error = Self::StorageError>
-    + Send
-    + Sync
-where
-    H: Send,
-{
-    type StorageError: Error + Send;
-}
-
 pub struct LocalRepo<H: CryptoHash, S>
 where
     H: Hash + Eq + Send + Sync,
     S: RepoStorage<H>,
-    S::StorageError: Error + Send,
+    S::RepoError: Error + Send,
 {
     storage: S,
 
@@ -66,27 +54,24 @@ impl<'repo, H: CryptoHash, S> LocalRepo<H, S>
 where
     H: Hash + Eq + Send + Sync,
     S: RepoStorage<H> + Send + Sync,
-    S::StorageError: Error + Send,
+    S::RepoError: Error + Send,
 {
     pub fn head(&self) -> &CommitId {
         &self.head
     }
 
-    pub async fn commit_header(
-        &self,
-        id: CommitId,
-    ) -> RepoResult<&CommitHeader<H>, S::StorageError> {
+    pub async fn commit_header(&self, id: CommitId) -> RepoResult<&CommitHeader<H>, S::RepoError> {
         repo_result(self.commit_headers.get(id).await)
     }
 
     pub async fn commit_metadata(
         &self,
         id: CommitId,
-    ) -> RepoResult<&CommitMetadata<H>, S::StorageError> {
+    ) -> RepoResult<&CommitMetadata<H>, S::RepoError> {
         repo_result(self.commit_metadatas.get(id).await)
     }
 
-    pub async fn index(&self, id: CommitId) -> RepoResult<&Index<H>, S::StorageError> {
+    pub async fn index(&self, id: CommitId) -> RepoResult<&Index<H>, S::RepoError> {
         todo!()
         // repo_result(<S as Storage<CommitId, Index<H>>>::load(self, &id).await)
     }
