@@ -5,4 +5,4 @@ edition = "2024"
 
 [workspace]
 members = ["vcs-core"]
-resolver = "2"
+resolver = "3"
