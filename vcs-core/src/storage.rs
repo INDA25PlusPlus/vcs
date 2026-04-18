@@ -1,5 +1,5 @@
-pub mod in_memory_storage;
 pub mod cache;
+pub mod in_memory_storage;
 
 use std::error::Error;
 use std::hash::Hash;
