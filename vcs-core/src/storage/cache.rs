@@ -1,9 +1,36 @@
 use crate::storage::{Storage, StorageResult};
 use dashmap::DashMap;
 use elsa::sync::FrozenMap;
+use std::borrow::Borrow;
 use std::hash::Hash;
+use std::ops::Deref;
 use std::sync::Arc;
 use tokio::sync::{OnceCell, RwLock};
+
+/// Type that can be converted into an owned value.
+///
+/// Has blanket implementations for
+///
+/// `T -> T` (move)
+///
+/// `&T -> T` (clone)
+///
+/// Users should generally prefer to use &T when T: Clone.
+pub trait IntoOwned<R>: Borrow<R> {
+    fn into_owned(self) -> R;
+}
+
+impl<T> IntoOwned<T> for T {
+    fn into_owned(self) -> T {
+        self
+    }
+}
+
+impl<T: Clone> IntoOwned<T> for &T {
+    fn into_owned(self) -> T {
+        self.clone()
+    }
+}
 
 /// Thread-safe append-only map with lazy loading from an external storage.
 /// Guarantees persistent key-to-value mappings if `S` makes that guarantee.
@@ -29,12 +56,12 @@ where
     }
 
     /// Get the value at `key` if it is loaded, or try to load it from storage
-    pub async fn get(&self, key: K) -> StorageResult<&V, S::Error> {
-        if let Some(value) = self.items.get(&key) {
+    pub async fn get<Q: IntoOwned<K>>(&self, key: Q) -> StorageResult<&V, S::Error> {
+        if let Some(value) = self.items.get(key.borrow()) {
             return Ok(value);
         }
-        let value = self.storage.load(&key).await?;
-        let value_ref = self.items.insert(key, Box::new(value));
+        let value = self.storage.load(key.borrow()).await?;
+        let value_ref = self.items.insert(key.into_owned(), Box::new(value));
         Ok(value_ref)
     }
 
