@@ -38,47 +38,55 @@ impl<T: Clone> IntoOwned<T> for &T {
 pub struct FrozenCache<K: Eq + Hash, V, S: Storage<K, V>> {
     // FrozenMap is used in order to allow concurrent reads and
     // writes by disallowing mutation or deletion of existing entries
-    items: FrozenMap<K, Box<V>>,
+    items: FrozenMap<K, Box<OnceCell<V>>>,
     storage: Arc<S>,
 }
 
 impl<K: Eq + Hash + Send + Sync, V: Send + Sync, S: Storage<K, V> + Send + Sync>
     FrozenCache<K, V, S>
 where
+    K: Clone,
     S::Error: Send,
 {
     /// Create a new map backed by `storage`
     pub fn new(storage: Arc<S>) -> FrozenCache<K, V, S> {
         FrozenCache {
-            items: FrozenMap::default(),
+            items: FrozenMap::new(),
             storage,
         }
     }
 
     /// Get the value at `key` if it is loaded, or try to load it from storage
-    pub async fn get<Q: IntoOwned<K>>(&self, key: Q) -> StorageResult<&V, S::Error> {
-        if let Some(value) = self.items.get(key.borrow()) {
-            return Ok(value);
-        }
-        let value = self.storage.load(key.borrow()).await?;
-        let value_ref = self.items.insert(key.into_owned(), Box::new(value));
-        Ok(value_ref)
+    pub async fn get(&self, key: &K) -> StorageResult<&V, S::Error> {
+        let entry = self.get_or_create_entry(key);
+        entry
+            .get_or_try_init(async || self.storage.load(key).await)
+            .await
     }
 
-    /// Attempt to insert `value` at `key`. Does nothing if `key` already
-    /// has an entry. If `value` is inserted, also attempts to store `value`
-    /// in storage, returning the error if there is one.
-    ///
-    /// # Concurrency
-    /// Concurrent inserts on the same `key` may result in redundant stores.
-    /// Concurrent inserts on different `key`s are safe.
-    pub async fn insert(&self, key: K, value: V) -> Result<(), S::Error> {
-        if self.items.get(&key).is_some() {
-            return Ok(());
+    /// Attempt to insert `value` at `key`, returning any storage errors. Returns the inserted value
+    /// or the old value if the entry already exists.
+    pub async fn insert(&self, key: &K, value: V) -> Result<&V, S::Error> {
+        let entry = self.get_or_create_entry(&key);
+        // LOGICAL RACE: if another thread attempts to init the cell here, get_or_try_init ensures
+        // that the current thread will wait and then retrieve the initialized value
+        entry
+            .get_or_try_init(async || {
+                self.storage.store(&key, &value).await?;
+                Ok(value)
+            })
+            .await
+    }
+
+    fn get_or_create_entry(&self, key: &K) -> &OnceCell<V> {
+        if let Some(entry) = self.items.get(key) {
+            entry
+        } else {
+            // only clone key if initial check shows that entry does not exist
+            // LOGICAL RACE: if entry is created by another thread here, we clone unnecessarily but
+            // don't lose any correctness
+            self.items.insert(key.clone(), Box::new(OnceCell::new()))
         }
-        self.storage.store(&key, &value).await?;
-        self.items.insert(key, Box::new(value));
-        Ok(())
     }
 }
 
@@ -126,7 +134,7 @@ where
     }
 
     /// Update the value at `key` and try to store the value in storage. Concurrent calls to this
-    /// method are guaranteed to peform the stores atomically.
+    /// method are guaranteed to perform the stores atomically.
     ///
     /// **Locking behavior:** Will deadlock if called from a closure passed into `get`.
     pub async fn update(&self, key: &K, value: V) -> Result<(), S::Error> {
@@ -183,7 +191,7 @@ mod tests {
 
     #[test]
     fn test_impl_send() {
-        //! Test that futures returned from LazyStorage::get actually implement
+        //! Test that futures returned from FrozenCache::get actually implement
         //! Send. This is required to spawn futures in tokio::spawn, for example.
 
         let storage = FrozenCache::new(Arc::new(TestStorage));
@@ -192,6 +200,6 @@ mod tests {
 
         // compile error if the future returned from storage.get doesn't
         // implement Send
-        require_send(storage.get(()));
+        require_send(storage.get(&()));
     }
 }
