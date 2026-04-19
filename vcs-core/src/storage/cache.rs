@@ -175,6 +175,10 @@ mod tests {
         async fn store(&self, _key: &(), _value: &()) -> Result<(), Self::Error> {
             Ok(())
         }
+
+        async fn delete(&self, _key: &()) -> Result<(), Self::Error> {
+            Ok(())
+        }
     }
 
     #[test]

@@ -20,6 +20,7 @@ pub trait Storage<K, V> {
 
     async fn load(&self, key: &K) -> StorageResult<V, Self::Error>;
     async fn store(&self, key: &K, value: &V) -> Result<(), Self::Error>;
+    async fn delete(&self, key: &K) -> Result<(), Self::Error>;
 }
 
 pub trait SingletonStorage<V>: Storage<(), V>
@@ -32,5 +33,9 @@ where
 
     async fn store_singleton(&self, value: &V) -> Result<(), Self::Error> {
         Storage::store(self, &(), value).await
+    }
+
+    async fn delete_singleton(&self) -> Result<(), Self::Error> {
+        Storage::delete(self, &()).await
     }
 }

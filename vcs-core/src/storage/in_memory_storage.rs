@@ -29,4 +29,9 @@ impl<K: Eq + Hash + Clone, V: Clone> Storage<K, V> for InMemoryStorage<K, V> {
         self.map.insert(key.clone(), value.clone());
         Ok(())
     }
+
+    async fn delete(&self, key: &K) -> Result<(), Self::Error> {
+        self.map.remove(key);
+        Ok(())
+    }
 }
