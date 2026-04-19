@@ -133,8 +133,8 @@ where
         // drop guard
     }
 
-    /// Update the value at `key` and try to store the value in storage. Concurrent calls to this
-    /// method are guaranteed to perform the stores atomically.
+    /// Update the value at `key` only if able to successfully store the value in storage.
+    /// Concurrent calls to this method are guaranteed to perform the stores atomically.
     ///
     /// **Locking behavior:** Will deadlock if called from a closure passed into `get`.
     pub async fn update(&self, key: &K, value: V) -> Result<(), S::Error> {
@@ -148,6 +148,15 @@ where
         *guard = OnceCell::from(value);
         Ok(())
         // drop guard
+    }
+
+    /// Remove the entry at `key` only if able to successfully remove the value from storage.
+    pub async fn remove(&self, key: &K) -> Result<(), S::Error> {
+        let result = self.storage.delete(key).await;
+        if matches!(result, Ok(())) {
+            self.items.remove(key);
+        }
+        result
     }
 
     fn get_or_create_entry(&self, key: &K) -> Arc<RwLock<OnceCell<V>>> {
