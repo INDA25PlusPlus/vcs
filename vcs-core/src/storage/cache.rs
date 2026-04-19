@@ -3,7 +3,7 @@ use dashmap::DashMap;
 use elsa::sync::FrozenMap;
 use std::borrow::Borrow;
 use std::hash::Hash;
-use std::ops::Deref;
+use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 use tokio::sync::{OnceCell, RwLock};
 
@@ -84,7 +84,7 @@ where
 
 /// Thread-safe mutable map with lazy loading and async storing to an external storage.
 pub struct MutableCache<K: Eq + Hash, V, S: Storage<K, V>> {
-    items: DashMap<K, Arc<OnceCell<RwLock<V>>>>,
+    items: DashMap<K, Arc<RwLock<OnceCell<V>>>>,
     storage: Arc<S>,
 }
 
@@ -102,74 +102,60 @@ impl<K: Eq + Hash, V, S: Storage<K, V>> MutableCache<K, V, S>
 where
     K: Clone,
 {
-    /// Get the value at `key` if it is loaded, or try to load it from storage. Access is provided
-    /// through `f`.
+    /// Get the value at `key` if it is loaded, or try to load it from storage. Access to the value
+    /// is provided through `f`.
     pub async fn get<R>(
         &self,
         key: &K,
         f: impl AsyncFnOnce(&V) -> R,
     ) -> StorageResult<R, S::Error> {
-        // Unfortunately there is no way around cloning the key, as it is used for both initializing
-        // the dashmap entry and loading it from storage. This necessarily has to happen after
-        // initializing the entry in order to avoid having to wait for storage at every read.
+        let entry = self.get_or_create_entry(key);
+        let guard = entry.read().await;
 
-        // get an existing entry or insert a new OnceCell
-        let entry = self.get_or_create_entry(key.clone());
+        // LOGICAL RACE: if another thread attempts to init the cell here, get_or_try_init ensures
+        // that the current thread will wait and then retrieve the initialized value
+        let value = guard
+            .get_or_try_init(async || {
+                let value = self.storage.load(key).await?;
+                Ok(value)
+            })
+            .await?;
 
-        // CONCURRENCY: if another thread inits the entry here, we just retrieve that newly
-        // initialized value instead of initializing it ourselves.
-
-        // insert value into entry if it doesn't already exist
-        let lock = self.read_or_init_entry(&key, &entry).await?;
-
-        let guard = lock.read().await;
-        Ok(f(&guard).await)
+        Ok(f(value).await)
         // drop guard
     }
 
-    /// Update the value at `key` and try to store the value in storage.
+    /// Update the value at `key` and try to store the value in storage. Concurrent calls to this
+    /// method are guaranteed to peform the stores atomically.
     ///
-    /// **Locking behavior:** May deadlock if called from a closure passed into `get`.
-    pub async fn update(&self, key: &K, value: V) -> StorageResult<(), S::Error> {
-        // Unfortunately there is no way around cloning the key, as it is used for both initializing
-        // the dashmap entry and loading it from storage. This necessarily has to happen after
-        // initializing the entry in order to avoid having to wait for storage at every read.
+    /// **Locking behavior:** Will deadlock if called from a closure passed into `get`.
+    pub async fn update(&self, key: &K, value: V) -> Result<(), S::Error> {
+        let entry = self.get_or_create_entry(key);
+        let mut guard = entry.write().await;
 
-        // get an existing entry or insert a new OnceCell
-        let entry = self.get_or_create_entry(key.clone());
+        // guard ensures no concurrent stores from this cache, which is required for atomicity in
+        // this function
+        self.storage.store(key, &value).await?;
 
-        // CONCURRENCY: if another thread inits the entry here, we just retrieve that newly
-        // initialized value instead of initializing it ourselves.
-
-        // insert value into entry if it doesn't already exist
-        let lock = self.read_or_init_entry(&key, &entry).await?;
-
-        // LOCKING: May wait for a read lock only if this method is called when holding a read lock,
-        // that is, inside the closure passed to `get`.
-        let mut guard = lock.write().await;
-        *guard = value;
-
+        *guard = OnceCell::from(value);
         Ok(())
         // drop guard
     }
 
-    fn get_or_create_entry(&self, key: K) -> Arc<OnceCell<RwLock<V>>> {
-        let entry = self.items.entry(key);
-        // clone the Arc stored in the dashmap
-        entry.or_insert_with(|| Arc::new(OnceCell::new())).clone()
-    }
-
-    async fn read_or_init_entry<'entry>(
-        &self,
-        key: &K,
-        entry: &'entry OnceCell<RwLock<V>>,
-    ) -> StorageResult<&'entry RwLock<V>, S::Error> {
-        Ok(entry
-            .get_or_try_init(async || {
-                let value = self.storage.load(key).await?;
-                Ok(RwLock::new(value))
-            })
-            .await?)
+    fn get_or_create_entry(&self, key: &K) -> Arc<RwLock<OnceCell<V>>> {
+        if let Some(entry) = self.items.get(key) {
+            // need to clone Arc in order to drop reference into DashMap (which could otherwise
+            // cause locking issues)
+            entry.value().clone()
+        } else {
+            // only clone key if initial check shows that entry does not exist
+            // LOGICAL RACE: if entry is created by another thread here, we clone unnecessarily but
+            // don't lose any correctness
+            self.items
+                .entry(key.clone())
+                .or_insert_with(|| Arc::new(RwLock::new(OnceCell::new())))
+                .clone()
+        }
     }
 }
 
