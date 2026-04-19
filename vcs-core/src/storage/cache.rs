@@ -1,4 +1,4 @@
-use crate::storage::{Storage, StorageResult};
+use crate::storage::{Storage, StorageError, StorageResult};
 use dashmap::DashMap;
 use elsa::sync::FrozenMap;
 use std::borrow::Borrow;
@@ -92,8 +92,13 @@ where
 
 /// Thread-safe mutable map with lazy loading and async storing to an external storage.
 pub struct MutableCache<K: Eq + Hash, V, S: Storage<K, V>> {
-    items: DashMap<K, Arc<RwLock<OnceCell<V>>>>,
+    items: DashMap<K, Arc<RwLock<MutableCacheEntry<V>>>>,
     storage: Arc<S>,
+}
+
+enum MutableCacheEntry<V> {
+    Value(OnceCell<V>),
+    Tombstone,
 }
 
 impl<K: Eq + Hash, V, S: Storage<K, V>> MutableCache<K, V, S> {
@@ -120,16 +125,21 @@ where
         let entry = self.get_or_create_entry(key);
         let guard = entry.read().await;
 
-        // LOGICAL RACE: if another thread attempts to init the cell here, get_or_try_init ensures
-        // that the current thread will wait and then retrieve the initialized value
-        let value = guard
-            .get_or_try_init(async || {
-                let value = self.storage.load(key).await?;
-                Ok(value)
-            })
-            .await?;
+        match guard.deref() {
+            MutableCacheEntry::Value(cell) => {
+                // LOGICAL RACE: if another thread attempts to init the cell here, get_or_try_init
+                // ensures that the current thread will wait and then retrieve the initialized value
+                let value = cell
+                    .get_or_try_init(async || {
+                        let value = self.storage.load(key).await?;
+                        Ok(value)
+                    })
+                    .await?;
 
-        Ok(f(value).await)
+                Ok(f(value).await)
+            }
+            MutableCacheEntry::Tombstone => Err(StorageError::MissingObject),
+        }
         // drop guard
     }
 
@@ -145,21 +155,25 @@ where
         // this function
         self.storage.store(key, &value).await?;
 
-        *guard = OnceCell::from(value);
+        *guard = MutableCacheEntry::Value(OnceCell::from(value));
         Ok(())
         // drop guard
     }
 
     /// Remove the entry at `key` only if able to successfully remove the value from storage.
     pub async fn remove(&self, key: &K) -> Result<(), S::Error> {
+        let entry = self.get_or_create_entry(key);
+        let mut guard = entry.write().await;
+
         let result = self.storage.delete(key).await;
         if matches!(result, Ok(())) {
-            self.items.remove(key);
+            *guard = MutableCacheEntry::Tombstone;
         }
         result
+        // drop guard
     }
 
-    fn get_or_create_entry(&self, key: &K) -> Arc<RwLock<OnceCell<V>>> {
+    fn get_or_create_entry(&self, key: &K) -> Arc<RwLock<MutableCacheEntry<V>>> {
         if let Some(entry) = self.items.get(key) {
             // need to clone Arc in order to drop reference into DashMap (which could otherwise
             // cause locking issues)
@@ -170,7 +184,7 @@ where
             // don't lose any correctness
             self.items
                 .entry(key.clone())
-                .or_insert_with(|| Arc::new(RwLock::new(OnceCell::new())))
+                .or_insert_with(|| Arc::new(RwLock::new(MutableCacheEntry::Value(OnceCell::new()))))
                 .clone()
         }
     }
