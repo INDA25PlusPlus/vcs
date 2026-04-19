@@ -104,7 +104,11 @@ where
 {
     /// Get the value at `key` if it is loaded, or try to load it from storage. Access is provided
     /// through `f`.
-    pub async fn get<R>(&self, key: K, f: impl AsyncFnOnce(&V) -> R) -> StorageResult<R, S::Error> {
+    pub async fn get<R>(
+        &self,
+        key: &K,
+        f: impl AsyncFnOnce(&V) -> R,
+    ) -> StorageResult<R, S::Error> {
         // Unfortunately there is no way around cloning the key, as it is used for both initializing
         // the dashmap entry and loading it from storage. This necessarily has to happen after
         // initializing the entry in order to avoid having to wait for storage at every read.
@@ -126,7 +130,7 @@ where
     /// Update the value at `key` and try to store the value in storage.
     ///
     /// **Locking behavior:** May deadlock if called from a closure passed into `get`.
-    pub async fn update(&self, key: K, value: V) -> StorageResult<(), S::Error> {
+    pub async fn update(&self, key: &K, value: V) -> StorageResult<(), S::Error> {
         // Unfortunately there is no way around cloning the key, as it is used for both initializing
         // the dashmap entry and loading it from storage. This necessarily has to happen after
         // initializing the entry in order to avoid having to wait for storage at every read.
