@@ -92,7 +92,7 @@ where
 
 /// Thread-safe mutable map with lazy loading and async storing to an external storage.
 pub struct MutableCache<K: Eq + Hash, V, S: Storage<K, V>> {
-    items: DashMap<K, Arc<RwLock<MutableCacheEntry<V>>>>,
+    items: RwLock<DashMap<K, Arc<RwLock<MutableCacheEntry<V>>>>>,
     storage: Arc<S>,
 }
 
@@ -105,7 +105,7 @@ impl<K: Eq + Hash, V, S: Storage<K, V>> MutableCache<K, V, S> {
     /// Create a new map backed by `storage`
     pub fn new(storage: Arc<S>) -> MutableCache<K, V, S> {
         MutableCache {
-            items: DashMap::new(),
+            items: RwLock::new(DashMap::new()),
             storage,
         }
     }
@@ -122,13 +122,15 @@ where
         key: &K,
         f: impl AsyncFnOnce(&V) -> R,
     ) -> StorageResult<R, S::Error> {
-        let entry = self.get_or_create_entry(key);
-        let guard = entry.read().await;
+        let map_guard = self.items.read().await;
 
-        match guard.deref() {
+        let entry = get_or_create_entry(&map_guard, key);
+        let entry_guard = entry.read().await;
+
+        match entry_guard.deref() {
             MutableCacheEntry::Value(cell) => {
-                // LOGICAL RACE: if another thread attempts to init the cell here, get_or_try_init
-                // ensures that the current thread will wait and then retrieve the initialized value
+                // get_or_try_init ensures that the current thread will wait for other threads
+                // before retrieving the initialized value
                 let value = cell
                     .get_or_try_init(async || {
                         let value = self.storage.load(key).await?;
@@ -140,7 +142,8 @@ where
             }
             MutableCacheEntry::Tombstone => Err(StorageError::MissingObject),
         }
-        // drop guard
+        // drop entry guard
+        // drop map guard
     }
 
     /// Update the value at `key` only if able to successfully store the value in storage.
@@ -148,45 +151,78 @@ where
     ///
     /// **Locking behavior:** Will deadlock if called from a closure passed into `get`.
     pub async fn update(&self, key: &K, value: V) -> Result<(), S::Error> {
-        let entry = self.get_or_create_entry(key);
-        let mut guard = entry.write().await;
+        let map_guard = self.items.read().await;
+
+        let entry = get_or_create_entry(&map_guard, key);
+        let mut entry_guard = entry.write().await;
 
         // guard ensures no concurrent stores from this cache, which is required for atomicity in
         // this function
         self.storage.store(key, &value).await?;
 
-        *guard = MutableCacheEntry::Value(OnceCell::from(value));
+        *entry_guard = MutableCacheEntry::Value(OnceCell::from(value));
         Ok(())
-        // drop guard
+        // drop entry guard
+        // drop map guard
     }
 
     /// Remove the entry at `key` only if able to successfully remove the value from storage.
+    /// Concurrent calls to this method with `get` or `update` are guaranteed to leave the cache
+    /// and storage in a consistent state.
     pub async fn remove(&self, key: &K) -> Result<(), S::Error> {
-        let entry = self.get_or_create_entry(key);
-        let mut guard = entry.write().await;
+        let map_guard = self.items.read().await;
 
+        let entry = get_or_create_entry(&map_guard, key);
+        let mut entry_guard = entry.write().await;
+
+        // guard ensures no concurrent stores or deletions, which is required for atomicity.
         let result = self.storage.delete(key).await;
         if matches!(result, Ok(())) {
-            *guard = MutableCacheEntry::Tombstone;
+            *entry_guard = MutableCacheEntry::Tombstone;
         }
         result
-        // drop guard
+        // drop entry guard
+        // drop map guard
     }
 
-    fn get_or_create_entry(&self, key: &K) -> Arc<RwLock<MutableCacheEntry<V>>> {
-        if let Some(entry) = self.items.get(key) {
-            // need to clone Arc in order to drop reference into DashMap (which could otherwise
-            // cause locking issues)
-            entry.value().clone()
-        } else {
-            // only clone key if initial check shows that entry does not exist
-            // LOGICAL RACE: if entry is created by another thread here, we clone unnecessarily but
-            // don't lose any correctness
-            self.items
-                .entry(key.clone())
-                .or_insert_with(|| Arc::new(RwLock::new(MutableCacheEntry::Value(OnceCell::new()))))
-                .clone()
-        }
+    /// Run garbage collection on cached entries that have been removed. Not necessary for normal
+    /// operation but will improve memory usage after removal of many entries.
+    pub async fn cleanup(&self) {
+        let map_guard = self.items.write().await;
+
+        map_guard.retain(|_, v| {
+            let Ok(entry_guard) = v.try_read() else {
+                // this should be impossible as the entry lock may never block in this situation,
+                // because the map lock ensures no other threads may access the map.
+                debug_assert!(false, "entry lock blocks despite outer lock");
+                return true;
+            };
+            matches!(entry_guard.deref(), MutableCacheEntry::Value(..))
+            // drop guard
+        });
+        // drop guard
+    }
+}
+
+fn get_or_create_entry<K, V>(
+    items: &DashMap<K, Arc<RwLock<MutableCacheEntry<V>>>>,
+    key: &K,
+) -> Arc<RwLock<MutableCacheEntry<V>>>
+where
+    K: Eq + Hash + Clone,
+{
+    if let Some(entry) = items.get(key) {
+        // need to clone Arc in order to drop reference into DashMap (which could otherwise
+        // cause locking issues)
+        entry.value().clone()
+    } else {
+        // only clone key if initial check shows that entry does not exist
+        // LOGICAL RACE: if entry is created by another thread here, we clone unnecessarily but
+        // don't lose any correctness
+        items
+            .entry(key.clone())
+            .or_insert_with(|| Arc::new(RwLock::new(MutableCacheEntry::Value(OnceCell::new()))))
+            .clone()
     }
 }
 
