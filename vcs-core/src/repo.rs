@@ -2,7 +2,7 @@ mod index;
 pub mod repo_storage;
 
 use crate::crypto::CryptoHash;
-use crate::diff::file_diff::FileDiff;
+use crate::diff::hunk_collection::HunkCollection;
 use crate::diff::repo_diff::{RepoDiff, RepoDiffRef};
 use crate::path::RepoPath;
 use crate::repo::index::Index;
@@ -27,7 +27,7 @@ where
     revision_metadatas: LazyStorage<RevisionId<H>, RevisionMetadata<H>, S>,
 
     repo_diffs: LazyStorage<H, RepoDiff<H>, S>,
-    file_diffs: LazyStorage<H, FileDiff, S>,
+    file_diffs: LazyStorage<H, HunkCollection, S>,
 }
 
 impl<H: CryptoHash, S> LocalRepo<H, S>
