@@ -5,11 +5,11 @@ use std::fmt::{Debug, Formatter};
 use std::marker::PhantomData;
 
 #[derive(Copy, Clone)]
-pub struct SignContext<'a> {
-    key_pair: &'a aws_lc_rs::signature::Ed25519KeyPair,
+pub struct SignContext<'key> {
+    key_pair: &'key aws_lc_rs::signature::Ed25519KeyPair,
 }
 
-impl<'a> SignContext<'a> {
+impl<'key> SignContext<'key> {
     pub fn sign<H: CryptoDigest>(&self, hash: &H) -> SignedHash<H> {
         SignedHash::sign(hash, self.key_pair)
     }
