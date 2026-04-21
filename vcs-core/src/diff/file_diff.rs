@@ -4,7 +4,7 @@ use crate::diff::hunk_collection::HunkCollection;
 pub enum FileDiff {
     Modify {
         hunks: HunkCollection,
-        execution_status: bool,
+        executable_status: bool,
     },
     Create {
         hunks: HunkCollection,
