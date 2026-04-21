@@ -2,8 +2,16 @@ use std::io;
 use std::io::Read;
 
 /// Result of applying a cryptographically secure hashing algorithm to an object
-pub trait CryptoDigest {
+pub trait CryptoDigest: Sized {
+    type Hasher: CryptoHasher<Output = Self> + Default;
+
     fn bytes(&self) -> &[u8];
+
+    fn generate<T: CryptoHash>(item: &T) -> Self {
+        let mut hasher = Self::Hasher::default();
+        item.crypto_hash(&mut hasher);
+        hasher.finish()
+    }
 }
 
 /// Type that can be hashed using a cryptographically secure hashing algorithm
@@ -235,4 +243,6 @@ mod impls {
             CryptoHash::crypto_hash(*self, state);
         }
     }
+
+    // Box, Vec
 }
