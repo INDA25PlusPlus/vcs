@@ -1,7 +1,6 @@
 use crate::storage::{Storage, StorageError, StorageResult};
 use dashmap::DashMap;
 use elsa::sync::FrozenMap;
-use std::borrow::Borrow;
 use std::hash::Hash;
 use std::ops::Deref;
 use std::sync::Arc;
