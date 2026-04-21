@@ -20,6 +20,8 @@ pub enum RepoError<E: Error + Send> {
     StorageError(E),
     #[error("object missing from database")]
     MissingObject,
+    #[error("commits missing common ancestor")]
+    MissingAncestor,
 }
 
 fn repo_result<T, E: Error>(result: Result<Option<T>, E>) -> RepoResult<T, E>
@@ -45,6 +47,64 @@ where
     H: Send,
 {
     type StorageError: Error + Send;
+
+    async fn get_commits_lca(
+        &self,
+        id_1: CommitId,
+        id_2: CommitId,
+    ) -> Result<CommitId, RepoError<Self::StorageError>> {
+        if id_1 == id_2 {
+            return Ok(id_1);
+        }
+
+        let load_two_commit_headers = async |commit_1: CommitId,
+                                             commit_2: CommitId|
+               -> Result<
+            (CommitHeader<H>, CommitHeader<H>),
+            RepoError<Self::StorageError>,
+        > {
+            let header_1 = <Self as Storage<CommitId, CommitHeader<H>>>::load(&self, &commit_1);
+            let header_2 = <Self as Storage<CommitId, CommitHeader<H>>>::load(&self, &commit_2);
+
+            let (header_1, header_2) =
+                tokio::try_join!(header_1, header_2).map_err(|err| RepoError::StorageError(err))?;
+            let header_1 = header_1.ok_or(RepoError::MissingObject)?;
+            let header_2 = header_2.ok_or(RepoError::MissingObject)?;
+
+            Ok((header_1, header_2))
+        };
+
+        let (header_1, header_2) = load_two_commit_headers(id_1, id_2).await?;
+
+        let (mut header_deep, mut header_shallow, id_shallow) = if header_1.depth > header_2.depth {
+            (header_1, header_2, id_2)
+        } else {
+            (header_2, header_1, id_1)
+        };
+
+        while header_deep.depth > header_shallow.depth && header_deep.parent_id != id_shallow {
+            header_deep =
+                <Self as Storage<CommitId, CommitHeader<H>>>::load(&self, &header_deep.parent_id)
+                    .await
+                    .map_err(|err| RepoError::StorageError(err))?
+                    .ok_or(RepoError::MissingObject)?;
+        }
+
+        if header_deep.parent_id == id_shallow {
+            return Ok(id_shallow);
+        }
+
+        while header_deep.parent_id != header_shallow.parent_id && header_deep.depth > 0 {
+            (header_deep, header_shallow) =
+                load_two_commit_headers(header_deep.parent_id, header_shallow.parent_id).await?;
+        }
+
+        // This being false would imply the commits don't have a shared ancestor, which should be impossible
+        // TODO: return error maybe?
+        debug_assert!(header_deep.depth > 0);
+
+        Ok(header_deep.parent_id)
+    }
 }
 
 pub struct LocalRepo<'repo, H: CryptoHash, S>

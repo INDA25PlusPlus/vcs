@@ -63,6 +63,7 @@ pub struct Commit<H: CryptoHash> {
 pub struct CommitHeader<H: CryptoHash> {
     pub repo_diff: H,
     pub parent_id: CommitId,
+    pub depth: usize,
 }
 
 pub struct CommitMetadata<H: CryptoHash> {
@@ -144,6 +145,7 @@ impl<H: CryptoHash> Commit<H> {
             header: CommitHeader {
                 repo_diff,
                 parent_id,
+                depth: 0,
             },
             metadata: CommitMetadata {
                 commit_id,
