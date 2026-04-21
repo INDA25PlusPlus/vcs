@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 aws-lc-rs = "1.16.2"
 blake3 = "1.8.3"
+crypto-hash-derive = { path = "crypto-hash-derive" }
 dashmap = "6.1.0"
 bytes = "1.11.1"
 elsa = "1.11.2"
