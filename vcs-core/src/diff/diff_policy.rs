@@ -1,15 +1,15 @@
-use crate::diff::{file_diff::FileDiff, hunk::Hunk};
+use crate::diff::{hunk::Hunk, hunk_collection::HunkCollection};
 
-/// Builds an initial [`FileDiff`] from source and destination bytes.
+/// Builds an initial [`HunkCollection`] from source and destination bytes.
 pub trait DiffPolicy {
-    fn diff(&self, src: &[u8], dst: &[u8]) -> FileDiff;
+    fn diff(&self, src: &[u8], dst: &[u8]) -> HunkCollection;
 }
 
 /// Trivial policy that replaces the whole file with a single hunk.
 pub struct NaiveDiff;
 
 impl DiffPolicy for NaiveDiff {
-    fn diff(&self, src_buf: &[u8], dst_buf: &[u8]) -> FileDiff {
+    fn diff(&self, src_buf: &[u8], dst_buf: &[u8]) -> HunkCollection {
         let src_len = src_buf.len();
         let hunks = Box::new([Hunk {
             offset: 0,
@@ -17,7 +17,7 @@ impl DiffPolicy for NaiveDiff {
             content_after: Box::from(dst_buf),
         }]);
 
-        FileDiff::new(hunks)
+        HunkCollection::new(hunks)
     }
 }
 
@@ -25,7 +25,7 @@ impl DiffPolicy for NaiveDiff {
 pub struct MyersDiff;
 
 impl DiffPolicy for MyersDiff {
-    fn diff(&self, _src: &[u8], _dst: &[u8]) -> FileDiff {
+    fn diff(&self, _src: &[u8], _dst: &[u8]) -> HunkCollection {
         todo!("Implement 'Myers Diff Algorithm'")
     }
 }
