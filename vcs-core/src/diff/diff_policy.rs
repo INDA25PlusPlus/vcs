@@ -47,7 +47,7 @@ mod tests {
         // NaiveDiff always emits one full-file replacement hunk.
         for (src, dst) in SRC_DST_DATA {
             let diff = differ.diff(src, dst);
-            assert!(diff.hunks.len() > 0);
+            assert!(!diff.hunks.is_empty());
             assert_eq!(diff.hunks[0].offset, 0);
             assert_eq!(diff.hunks[0].len_before, src.len());
             assert_eq!(*diff.hunks[0].content_after, *dst);

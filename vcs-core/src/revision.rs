@@ -62,7 +62,7 @@ impl<H: CryptoHash> Patch<H> {
         timestamp: Timestamp,
         sign_context: SignContext,
     ) -> Patch<H> {
-        let pre_signed = crypto_hash!(H; repo_diff, message, timestamp);
+        let pre_signed = todo!(); // crypto_hash!(H; repo_diff, message, timestamp);
         let signature = sign_context.sign(pre_signed);
         Patch {
             repo_diff,
@@ -121,7 +121,7 @@ where
 
     /// Commits this revision, overwriting any previous commit metadata.
     pub fn commit(&mut self, message: String, timestamp: Timestamp, sign_context: SignContext) {
-        let pre_signed = crypto_hash!(H; self.revision_hash(), message, timestamp);
+        let pre_signed = todo!(); // crypto_hash!(H; self.revision_hash(), message, timestamp);
         let signature = sign_context.sign(pre_signed);
         self.metadata.committer = Some(Committer {
             message,
