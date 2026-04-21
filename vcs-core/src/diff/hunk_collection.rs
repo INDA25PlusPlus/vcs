@@ -2,12 +2,10 @@ use std::collections::VecDeque;
 
 use bytes::Bytes;
 
-use crate::{
-    crypto::{CryptoHash, CryptoHashable},
-    diff::{
-        hunk::Hunk,
-        ops_stream::{Op, OpStreamExt, compact::Compact},
-    },
+use crate::crypto::digest::{CryptoDigest, CryptoHash};
+use crate::diff::{
+    hunk::Hunk,
+    ops_stream::{Op, OpStreamExt, compact::Compact},
 };
 
 /// Stored diff for a single file.
@@ -146,12 +144,6 @@ impl<I: Iterator<Item = Hunk>> Iterator for HunkOpStream<I> {
         self.previous_deleted_len = hunk.len_before;
 
         self.pending_ops.pop_front()
-    }
-}
-
-impl CryptoHashable for HunkCollection {
-    fn crypto_hash<H: CryptoHash>(&self) -> H {
-        todo!()
     }
 }
 

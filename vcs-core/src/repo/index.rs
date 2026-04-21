@@ -1,5 +1,5 @@
-use crate::crypto::CryptoHash;
+use crate::crypto::digest::CryptoDigest;
 
-pub struct Index<H: CryptoHash> {
+pub struct Index<H: CryptoDigest> {
     pub repo_diff: H,
 }
