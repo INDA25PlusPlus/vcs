@@ -2,7 +2,7 @@ mod index;
 pub mod repo_storage;
 
 use crate::crypto::CryptoHash;
-use crate::diff::hunk_collection::HunkCollection;
+use crate::diff::file_diff::FileDiff;
 use crate::diff::repo_diff::{RepoDiff, RepoDiffRef};
 use crate::path::RepoPath;
 use crate::repo::index::Index;
