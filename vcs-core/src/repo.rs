@@ -1,7 +1,7 @@
 mod index;
 pub mod repo_storage;
 
-use crate::crypto::CryptoHash;
+use crate::crypto::digest::CryptoDigest;
 use crate::diff::file_diff::FileDiff;
 use crate::diff::repo_diff::{RepoDiff, RepoDiffRef};
 use crate::path::RepoPath;
@@ -13,54 +13,54 @@ use std::error::Error;
 use std::hash::Hash;
 use std::sync::Arc;
 
-pub struct Repository<H: CryptoHash, S>
+pub struct Repository<D: CryptoDigest, S>
 where
-    H: Hash + Eq + Send + Sync,
-    S: RepoStorage<H>,
+    D: Hash + Eq + Send + Sync,
+    S: RepoStorage<D>,
     S::RepoError: Error + Send,
 {
     storage: Arc<S>,
 
-    head: RevisionId<H>,
+    head: RevisionId<D>,
 
-    revision_headers: LazyStorage<RevisionId<H>, RevisionHeader<H>, S>,
-    revision_metadatas: LazyStorage<RevisionId<H>, RevisionMetadata<H>, S>,
+    revision_headers: LazyStorage<RevisionId<D>, RevisionHeader<D>, S>,
+    revision_metadatas: LazyStorage<RevisionId<D>, RevisionMetadata<D>, S>,
 
-    repo_diffs: LazyStorage<H, RepoDiff<H>, S>,
-    file_diffs: LazyStorage<H, FileDiff, S>,
+    repo_diffs: LazyStorage<D, RepoDiff<D>, S>,
+    file_diffs: LazyStorage<D, FileDiff, S>,
 }
 
-impl<H: CryptoHash, S> Repository<H, S>
+impl<D: CryptoDigest, S> Repository<D, S>
 where
-    H: Hash + Eq + Send + Sync,
-    S: RepoStorage<H> + Send + Sync,
+    D: Hash + Eq + Send + Sync,
+    S: RepoStorage<D> + Send + Sync,
     S::RepoError: Error + Send,
 {
-    pub fn head(&self) -> &RevisionId<H> {
+    pub fn head(&self) -> &RevisionId<D> {
         &self.head
     }
 
     pub async fn revision_header(
         &self,
-        id: RevisionId<H>,
-    ) -> StorageResult<&RevisionHeader<H>, S::RepoError> {
+        id: RevisionId<D>,
+    ) -> StorageResult<&RevisionHeader<D>, S::RepoError> {
         self.revision_headers.get(id).await
     }
 
     pub async fn commit_metadata(
         &self,
-        id: RevisionId<H>,
-    ) -> StorageResult<&RevisionMetadata<H>, S::RepoError> {
+        id: RevisionId<D>,
+    ) -> StorageResult<&RevisionMetadata<D>, S::RepoError> {
         self.revision_metadatas.get(id).await
     }
 
     /// Generates a new repo diff from a series of patches, stores it to storage and returns its
     /// hash.
-    pub async fn squash(&self, patches: &[Patch<H>]) -> RepoDiffRef<H> {
+    pub async fn squash(&self, patches: &[Patch<D>]) -> RepoDiffRef<D> {
         todo!()
     }
 
-    pub async fn index(&self, id: RevisionId<H>) -> StorageResult<&Index<H>, S::RepoError> {
+    pub async fn index(&self, id: RevisionId<D>) -> StorageResult<&Index<D>, S::RepoError> {
         todo!()
         // repo_result(<S as Storage<CommitId, Index<H>>>::load(self, &id).await)
     }
@@ -77,7 +77,7 @@ where
         todo!()
     }
 
-    pub async fn checkout(&mut self, commit_id: &RevisionId<H>) {
+    pub async fn checkout(&mut self, commit_id: &RevisionId<D>) {
         todo!()
     }
 }

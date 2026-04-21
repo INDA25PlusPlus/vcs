@@ -1,4 +1,4 @@
-use crate::crypto::CryptoHash;
+use crate::crypto::digest::CryptoDigest;
 use aws_lc_rs::signature::KeyPair;
 use serde::{Deserializer, Serializer};
 use std::fmt::{Debug, Formatter};
@@ -10,20 +10,20 @@ pub struct SignContext<'a> {
 }
 
 impl<'a> SignContext<'a> {
-    pub fn sign<H: CryptoHash>(&self, hash: &H) -> SignedHash<H> {
+    pub fn sign<H: CryptoDigest>(&self, hash: &H) -> SignedHash<H> {
         SignedHash::sign(hash, self.key_pair)
     }
 }
 
 /// Signature of a hash of type `H`
 #[derive(Clone)]
-pub struct SignedHash<H: CryptoHash> {
+pub struct SignedHash<H: CryptoDigest> {
     public_key: aws_lc_rs::signature::UnparsedPublicKey<Box<[u8]>>,
     signature: aws_lc_rs::signature::Signature,
     _hash_type: PhantomData<H>,
 }
 
-impl<H: CryptoHash> SignedHash<H> {
+impl<H: CryptoDigest> SignedHash<H> {
     /// Create a signature of `item` using a given key pair
     pub fn sign(hash: &H, key_pair: &aws_lc_rs::signature::Ed25519KeyPair) -> SignedHash<H> {
         SignedHash {
@@ -43,7 +43,7 @@ impl<H: CryptoHash> SignedHash<H> {
     }
 }
 
-impl<H: CryptoHash> serde::Serialize for SignedHash<H> {
+impl<H: CryptoDigest> serde::Serialize for SignedHash<H> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -52,7 +52,7 @@ impl<H: CryptoHash> serde::Serialize for SignedHash<H> {
     }
 }
 
-impl<'de, H: CryptoHash> serde::Deserialize<'de> for SignedHash<H> {
+impl<'de, H: CryptoDigest> serde::Deserialize<'de> for SignedHash<H> {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
@@ -61,7 +61,7 @@ impl<'de, H: CryptoHash> serde::Deserialize<'de> for SignedHash<H> {
     }
 }
 
-impl<H: CryptoHash> Debug for SignedHash<H> {
+impl<H: CryptoDigest> Debug for SignedHash<H> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         todo!()
     }
