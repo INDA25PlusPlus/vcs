@@ -5,6 +5,17 @@ on:
     branches: [main]
   pull_request:
 
+env:
+  RUSTFLAGS: >-
+    -A unused_variables
+    -A unused_imports
+    -A unused_mut
+    -A unused_macros
+    -A dead_code
+    -A unreachable_code
+    -A unreachable_patterns
+    -D warnings
+
 jobs:
   ci:
     runs-on: ${{ matrix.os }}
@@ -36,13 +47,16 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Linting
-        run: cargo clippy --workspace --all-targets --all-features -- \
-          -D warnings \
-          -A dead_code \
-          -A unused_imports \
-          -A unused_variables \
-          -A unused_mut \
+        run: >
+          cargo clippy --workspace --all-targets --all-features --
+          -A unused_variables
+          -A unused_imports
+          -A unused_mut
+          -A unused_macros
+          -A dead_code
           -A unreachable_code
+          -A unreachable_patterns
+          -D warnings
 
       - name: Documentation
         run: RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --all-features
