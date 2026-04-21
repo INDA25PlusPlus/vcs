@@ -108,6 +108,10 @@ pub trait CryptoHasher {
 mod impls {
     use super::*;
     use std::convert::Infallible;
+    use std::ops::Deref;
+    use std::pin::Pin;
+    use std::rc::Rc;
+    use std::sync::Arc;
 
     macro_rules! impl_write {
         ($(($ty:ty, $method:ident),)*) => {
@@ -230,6 +234,14 @@ mod impls {
         }
     }
 
+    impl<T: CryptoHash, const N: usize> CryptoHash for [T; N] {
+        #[inline]
+        fn crypto_hash<D: CryptoDigest, H: CryptoHasher<Output = D>>(&self, state: &mut H) {
+            // no length prefix because length is constant
+            self.iter().for_each(|item| item.crypto_hash(state));
+        }
+    }
+
     impl<T: CryptoHash> CryptoHash for &T {
         #[inline]
         fn crypto_hash<D: CryptoDigest, H: CryptoHasher<Output = D>>(&self, state: &mut H) {
@@ -244,5 +256,60 @@ mod impls {
         }
     }
 
-    // Box, Vec
+    impl<T: CryptoHash + ?Sized> CryptoHash for Box<T> {
+        #[inline]
+        fn crypto_hash<D: CryptoDigest, H: CryptoHasher<Output = D>>(&self, state: &mut H) {
+            CryptoHash::crypto_hash(&self, state);
+        }
+    }
+
+    impl<T: CryptoHash> CryptoHash for Vec<T> {
+        #[inline]
+        fn crypto_hash<D: CryptoDigest, H: CryptoHasher<Output = D>>(&self, state: &mut H) {
+            CryptoHash::crypto_hash_slice(self.as_slice(), state);
+        }
+    }
+
+    impl CryptoHash for String {
+        #[inline]
+        fn crypto_hash<D: CryptoDigest, H: CryptoHasher<Output = D>>(&self, state: &mut H) {
+            state.write_str(self.as_str());
+        }
+    }
+
+    impl<T: CryptoHash> CryptoHash for Rc<T> {
+        #[inline]
+        fn crypto_hash<D: CryptoDigest, H: CryptoHasher<Output = D>>(&self, state: &mut H) {
+            CryptoHash::crypto_hash(&self, state);
+        }
+    }
+
+    impl<T: CryptoHash> CryptoHash for Arc<T> {
+        #[inline]
+        fn crypto_hash<D: CryptoDigest, H: CryptoHasher<Output = D>>(&self, state: &mut H) {
+            CryptoHash::crypto_hash(&self, state);
+        }
+    }
+
+    impl<T: Deref<Target: CryptoHash>> CryptoHash for Pin<T> {
+        #[inline]
+        fn crypto_hash<D: CryptoDigest, H: CryptoHasher<Output = D>>(&self, state: &mut H) {
+            CryptoHash::crypto_hash(self.deref(), state);
+        }
+    }
+
+    impl<T: CryptoHash> CryptoHash for Option<T> {
+        #[inline]
+        fn crypto_hash<D: CryptoDigest, H: CryptoHasher<Output = D>>(&self, state: &mut H) {
+            match self {
+                None => {
+                    state.write_u8(0);
+                }
+                Some(item) => {
+                    state.write_u8(1);
+                    item.crypto_hash(state);
+                }
+            }
+        }
+    }
 }
