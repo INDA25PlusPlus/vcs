@@ -27,7 +27,7 @@ where
     revision_metadatas: LazyStorage<RevisionId<H>, RevisionMetadata<H>, S>,
 
     repo_diffs: LazyStorage<H, RepoDiff<H>, S>,
-    file_diffs: LazyStorage<H, HunkCollection, S>,
+    file_diffs: LazyStorage<H, FileDiff, S>,
 }
 
 impl<H: CryptoHash, S> Repository<H, S>
