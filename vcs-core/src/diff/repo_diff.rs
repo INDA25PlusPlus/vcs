@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::{crypto::CryptoHash, path::RepoPath};
 
-pub type RepoDiffRef<H: CryptoHash> = H;
+pub type RepoDiffRef<H> = H;
 
 /// Per-file diffs for a commit.
 #[derive(Debug)]
