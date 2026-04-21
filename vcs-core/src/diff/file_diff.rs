@@ -8,7 +8,7 @@ pub enum FileDiff {
     },
     Create {
         hunks: HunkCollection,
-        execution_status: bool,
+        executable_status: bool,
     },
     Delete,
 }
