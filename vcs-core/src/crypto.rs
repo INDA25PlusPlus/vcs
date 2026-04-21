@@ -18,12 +18,12 @@ pub trait CryptoHashable {
     fn crypto_hash<H: CryptoHash>(&self) -> H;
 }
 
-#[macro_export]
 macro_rules! crypto_hash {
     ($hash_type:ty; $($field:expr),*) => {
         todo!()
     };
 }
+pub(crate) use crypto_hash;
 
 #[cfg(test)]
 mod tests {
