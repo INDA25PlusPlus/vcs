@@ -7,7 +7,7 @@
 //! has been either pushed to or pulled from the upstream. Furthermore, a committed revision is
 //! considered permanent and can not be rebased, squashed or otherwise edited.
 
-use crate::crypto::{CryptoHash, SignContext};
+use crate::crypto::{CryptoHash, signature::SignContext};
 use crate::crypto_hash;
 use crate::diff::repo_diff::RepoDiffRef;
 use crate::repo::Repository;

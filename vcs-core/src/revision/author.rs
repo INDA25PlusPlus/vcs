@@ -1,4 +1,4 @@
-use crate::crypto::{CryptoHash, SignedHash};
+use crate::crypto::{CryptoHash, signature::SignedHash};
 use crate::revision::timestamp::Timestamp;
 
 #[derive(Clone, Debug)]
