@@ -7,31 +7,6 @@ use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 use tokio::sync::{OnceCell, RwLock};
 
-/// Type that can be converted into an owned value.
-///
-/// Has blanket implementations for
-///
-/// `T -> T` (move)
-///
-/// `&T -> T` (clone)
-///
-/// Users should generally prefer to use &T when T: Clone.
-pub trait IntoOwned<R>: Borrow<R> {
-    fn into_owned(self) -> R;
-}
-
-impl<T> IntoOwned<T> for T {
-    fn into_owned(self) -> T {
-        self
-    }
-}
-
-impl<T: Clone> IntoOwned<T> for &T {
-    fn into_owned(self) -> T {
-        self.clone()
-    }
-}
-
 /// Thread-safe append-only map with lazy loading from an external storage.
 /// Guarantees persistent key-to-value mappings if `S` makes that guarantee.
 #[derive(Debug, Default, Clone)]
