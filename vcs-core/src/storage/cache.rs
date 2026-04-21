@@ -42,12 +42,12 @@ where
     /// Attempt to insert `value` at `key`, returning any storage errors. Returns the inserted value
     /// or the old value if the entry already exists.
     pub async fn insert(&self, key: &K, value: V) -> Result<&V, S::Error> {
-        let entry = self.get_or_create_entry(&key);
+        let entry = self.get_or_create_entry(key);
         // LOGICAL RACE: if another thread attempts to init the cell here, get_or_try_init ensures
         // that the current thread will wait and then retrieve the initialized value
         entry
             .get_or_try_init(async || {
-                self.storage.store(&key, &value).await?;
+                self.storage.store(key, &value).await?;
                 Ok(value)
             })
             .await

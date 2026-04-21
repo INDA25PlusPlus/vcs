@@ -42,14 +42,14 @@ where
 
     pub async fn revision_header(
         &self,
-        id: RevisionId<H>,
+        id: &RevisionId<H>,
     ) -> StorageResult<&RevisionHeader<H>, S::RepoError> {
         self.revision_headers.get(id).await
     }
 
     pub async fn commit_metadata(
         &self,
-        id: RevisionId<H>,
+        id: &RevisionId<H>,
     ) -> StorageResult<&RevisionMetadata<H>, S::RepoError> {
         self.revision_metadatas.get(id).await
     }
