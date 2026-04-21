@@ -13,7 +13,7 @@ use std::error::Error;
 use std::hash::Hash;
 use std::sync::Arc;
 
-pub struct LocalRepo<H: CryptoHash, S>
+pub struct Repository<H: CryptoHash, S>
 where
     H: Hash + Eq + Send + Sync,
     S: RepoStorage<H>,
@@ -30,7 +30,7 @@ where
     file_diffs: LazyStorage<H, FileDiff, S>,
 }
 
-impl<H: CryptoHash, S> LocalRepo<H, S>
+impl<H: CryptoHash, S> Repository<H, S>
 where
     H: Hash + Eq + Send + Sync,
     S: RepoStorage<H> + Send + Sync,

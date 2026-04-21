@@ -10,7 +10,7 @@
 use crate::crypto::{CryptoHash, SignContext};
 use crate::crypto_hash;
 use crate::diff::repo_diff::RepoDiffRef;
-use crate::repo::LocalRepo;
+use crate::repo::Repository;
 use crate::repo::repo_storage::RepoStorage;
 use crate::revision::author::{Author, AuthorSignature, Committer};
 use crate::revision::timestamp::Timestamp;
@@ -80,7 +80,7 @@ where
     H: Eq + Hash + Send + Sync,
 {
     pub async fn new<S: RepoStorage<H>>(
-        repo: &LocalRepo<H, S>,
+        repo: &Repository<H, S>,
         parent: RevisionId<H>,
         patches: Box<[Patch<H>]>,
         timestamp: Timestamp,
