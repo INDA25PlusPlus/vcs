@@ -7,10 +7,11 @@
 //! has been either pushed to or pulled from the upstream. Furthermore, a committed revision is
 //! considered permanent and can not be rebased, squashed or otherwise edited.
 
-use crate::crypto::{CryptoHash, SignContext};
-use crate::crypto_hash;
+use crate::crypto::crypto_hash;
+use crate::crypto::digest::CryptoDigest;
+use crate::crypto::signature::SignContext;
 use crate::diff::repo_diff::RepoDiffRef;
-use crate::repo::LocalRepo;
+use crate::repo::Repository;
 use crate::repo::repo_storage::RepoStorage;
 use crate::revision::author::{Author, AuthorSignature, Committer};
 use crate::revision::timestamp::Timestamp;
@@ -27,19 +28,19 @@ pub type FormatVersion = u16;
 pub const FORMAT_VERSION: FormatVersion = 0;
 
 #[derive(Clone, Debug)]
-pub struct Patch<H: CryptoHash> {
+pub struct Patch<H: CryptoDigest> {
     repo_diff: RepoDiffRef<H>,
     author: Author<H>,
 }
 
 #[derive(Clone, Debug)]
-pub struct RevisionHeader<H: CryptoHash> {
+pub struct RevisionHeader<H: CryptoDigest> {
     pub repo_diff: RepoDiffRef<H>,
     pub parent: RevisionId<H>,
 }
 
 #[derive(Clone, Debug)]
-pub struct RevisionMetadata<H: CryptoHash> {
+pub struct RevisionMetadata<H: CryptoDigest> {
     pub version: FormatVersion,
     pub patches: Box<[Patch<H>]>,
     pub committer: Option<Committer<H>>,
@@ -50,19 +51,19 @@ pub struct RevisionMetadata<H: CryptoHash> {
 ///
 /// A value of this type is guaranteed to be a valid revision with valid hashes and signatures.
 #[derive(Clone, Debug)]
-pub struct Revision<H: CryptoHash> {
+pub struct Revision<H: CryptoDigest> {
     header: RevisionHeader<H>,
     metadata: RevisionMetadata<H>,
 }
 
-impl<H: CryptoHash> Patch<H> {
+impl<H: CryptoDigest> Patch<H> {
     pub fn new_signed(
         repo_diff: RepoDiffRef<H>,
         message: String,
         timestamp: Timestamp,
         sign_context: SignContext,
     ) -> Patch<H> {
-        let pre_signed = crypto_hash!(H; repo_diff, message, timestamp);
+        let pre_signed = todo!(); // crypto_hash!(H; repo_diff, message, timestamp);
         let signature = sign_context.sign(pre_signed);
         Patch {
             repo_diff,
@@ -75,12 +76,12 @@ impl<H: CryptoHash> Patch<H> {
     }
 }
 
-impl<H: CryptoHash> Revision<H>
+impl<H: CryptoDigest> Revision<H>
 where
-    H: Eq + Hash + Send + Sync,
+    H: Eq + Hash + Send + Sync + Clone,
 {
     pub async fn new<S: RepoStorage<H>>(
-        repo: &LocalRepo<H, S>,
+        repo: &Repository<H, S>,
         parent: RevisionId<H>,
         patches: Box<[Patch<H>]>,
         timestamp: Timestamp,
@@ -121,7 +122,7 @@ where
 
     /// Commits this revision, overwriting any previous commit metadata.
     pub fn commit(&mut self, message: String, timestamp: Timestamp, sign_context: SignContext) {
-        let pre_signed = crypto_hash!(H; self.revision_hash(), message, timestamp);
+        let pre_signed = todo!(); // crypto_hash!(H; self.revision_hash(), message, timestamp);
         let signature = sign_context.sign(pre_signed);
         self.metadata.committer = Some(Committer {
             message,

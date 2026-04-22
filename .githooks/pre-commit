@@ -1,11 +1,16 @@
 #!/usr/bin/env bash
 set -e
 
+RUSTFLAGS="-A unused_variables -A unused_mut -A unused_macros -A dead_code -A unreachable_code -A unreachable_patterns -D warnings" \
+  cargo check --workspace --all-targets --all-features
+
 cargo fmt --all -- --check
+
 cargo clippy --workspace --all-targets --all-features -- \
-  -D warnings \
-  -A dead_code \
-  -A unused_imports \
   -A unused_variables \
   -A unused_mut \
-  -A unreachable_code
+  -A unused_macros \
+  -A dead_code \
+  -A unreachable_code \
+  -A unreachable_patterns \
+  -D warnings

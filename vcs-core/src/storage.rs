@@ -1,7 +1,6 @@
 pub mod cache;
 pub mod in_memory_storage;
 
-
 pub type StorageResult<T, E> = Result<T, StorageError<E>>;
 
 #[derive(thiserror::Error, Debug)]
