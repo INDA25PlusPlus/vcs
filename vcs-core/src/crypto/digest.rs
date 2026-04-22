@@ -313,3 +313,18 @@ mod impls {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crypto_hash_derive::CryptoHash;
+
+    #[derive(CryptoHash)]
+    struct Struct<T1: CryptoHash, T2>
+    where
+        T2: CryptoHash,
+    {
+        a: T1,
+        b: T2,
+    }
+}
