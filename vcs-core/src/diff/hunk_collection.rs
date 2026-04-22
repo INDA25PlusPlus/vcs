@@ -2,7 +2,6 @@ use std::collections::VecDeque;
 
 use bytes::Bytes;
 
-use crate::crypto::digest::{CryptoDigest, CryptoHash};
 use crate::diff::{
     hunk::Hunk,
     ops_stream::{Op, OpStreamExt, compact::Compact},

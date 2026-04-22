@@ -1,6 +1,5 @@
 pub mod in_memory_storage;
 
-use std::error::Error;
 use std::hash::Hash;
 use std::sync::Arc;
 
