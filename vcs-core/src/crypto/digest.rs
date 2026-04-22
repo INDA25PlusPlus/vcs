@@ -327,4 +327,27 @@ mod tests {
         a: T1,
         b: T2,
     }
+
+    #[derive(CryptoHash)]
+    enum Enum<T1: CryptoHash, T2: CryptoHash> {
+        VariantA,
+        VariantB(T1, T2),
+        VariantC { a: T1, b: T2 },
+    }
+
+    fn require_trait<T: CryptoHash>(t: T) {}
+
+    #[test]
+    fn test_derives() {
+        require_trait(53);
+        require_trait(true);
+        require_trait('a');
+        require_trait("hej");
+
+        let e = Enum::VariantC { a: 53, b: true };
+        require_trait(e);
+
+        let s = Struct { a: 'a', b: "hej" };
+        require_trait(s);
+    }
 }
