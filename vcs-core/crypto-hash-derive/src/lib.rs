@@ -2,7 +2,6 @@ use proc_macro::TokenStream;
 use proc_macro_crate::FoundCrate;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::{format_ident, quote};
-use syn::{Data, DeriveInput, Fields, parse_macro_input};
 
 #[proc_macro_derive(CryptoHash, attributes(literal))]
 pub fn crypto_hash_derive(input: TokenStream) -> TokenStream {
@@ -15,14 +14,16 @@ pub fn crypto_hash_derive(input: TokenStream) -> TokenStream {
         #crate_name::crypto::digest
     };
 
-    let input = parse_macro_input!(input as DeriveInput);
+    let input = syn::parse_macro_input!(input as syn::DeriveInput);
 
     match input.data {
-        Data::Struct(data_struct) => {
+        syn::Data::Struct(data_struct) => {
             struct_derive(mod_name, input.ident, data_struct, input.generics).into()
         }
-        Data::Enum(data_enum) => enum_derive(input.ident, data_enum).into(),
-        Data::Union(..) => quote! {
+        syn::Data::Enum(data_enum) => {
+            enum_derive(mod_name, input.ident, data_enum, input.generics).into()
+        }
+        syn::Data::Union(..) => quote! {
             compile_error!("`CryptoHash` cannot be derived for unions")
         }
         .into(),
@@ -36,7 +37,7 @@ fn struct_derive(
     generics: syn::Generics,
 ) -> TokenStream2 {
     let field_stmt: Vec<_> = match data_struct.fields {
-        Fields::Named(fields) => fields
+        syn::Fields::Named(fields) => fields
             .named
             .iter()
             .map(|field| {
@@ -47,13 +48,13 @@ fn struct_derive(
                 wrap_crypto_hash_fn(&mod_name, quote! { self.#name })
             })
             .collect(),
-        Fields::Unnamed(fields) => fields
+        syn::Fields::Unnamed(fields) => fields
             .unnamed
             .iter()
             .zip(0..)
             .map(|(_, i)| wrap_crypto_hash_fn(&mod_name, quote! { self.#i }))
             .collect(),
-        Fields::Unit => {
+        syn::Fields::Unit => {
             vec![quote! {}]
         }
     };
@@ -63,9 +64,76 @@ fn struct_derive(
     wrap_impl(mod_name, type_ident, generics, inner_block)
 }
 
-fn enum_derive(type_ident: syn::Ident, data_enum: syn::DataEnum) -> TokenStream2 {
-    quote! {
-        compile_error("enums are not yet supported!");
+fn enum_derive(
+    mod_name: TokenStream2,
+    type_ident: syn::Ident,
+    data_enum: syn::DataEnum,
+    generics: syn::Generics,
+) -> TokenStream2 {
+    let variant_stmt: Vec<_> = data_enum
+        .variants
+        .iter()
+        .zip(0u64..)
+        .map(|(variant, id)| enum_variant_derive(&mod_name, &type_ident, variant, id))
+        .collect();
+    let inner_block = quote! {
+        match self {
+            #(#variant_stmt,)*
+        }
+    };
+    wrap_impl(mod_name, type_ident, generics, inner_block)
+}
+
+fn enum_variant_derive(
+    mod_name: &TokenStream2,
+    type_ident: &syn::Ident,
+    variant: &syn::Variant,
+    variant_id: u64,
+) -> TokenStream2 {
+    let variant_ident = &variant.ident;
+    match &variant.fields {
+        syn::Fields::Named(fields) => {
+            let field_name = fields.named.iter().map(|field| {
+                field
+                    .ident
+                    .as_ref()
+                    .expect("named fields should have idents")
+            });
+            let wrapped = field_name
+                .clone()
+                .map(|ident| wrap_crypto_hash_fn(mod_name, quote! { #ident }));
+
+            quote! {
+                #type_ident::#variant_ident { #(#field_name,)* } => {
+                    #mod_name::CryptoHasher::write_u64(state, #variant_id);
+                    #(#wrapped)*
+                }
+            }
+        }
+        syn::Fields::Unnamed(fields) => {
+            let field_name = fields
+                .unnamed
+                .iter()
+                .zip(0u64..)
+                .map(|(_, field_id)| format_ident!("field_{}", field_id));
+            let wrapped = field_name
+                .clone()
+                .map(|ident| wrap_crypto_hash_fn(mod_name, quote! { #ident }));
+
+            quote! {
+                #type_ident::#variant_ident(#(#field_name,)*) => {
+                    #mod_name::CryptoHasher::write_u64(state, #variant_id);
+                    #(#wrapped)*
+                }
+            }
+        }
+        syn::Fields::Unit => {
+            quote! {
+                #type_ident::#variant_ident => {
+                    #mod_name::CryptoHasher::write_u64(state, #variant_id);
+                }
+            }
+        }
     }
 }
 
