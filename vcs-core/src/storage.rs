@@ -1,7 +1,6 @@
 pub mod cache;
 pub mod in_memory_storage;
 
-use std::error::Error;
 
 pub type StorageResult<T, E> = Result<T, StorageError<E>>;
 
