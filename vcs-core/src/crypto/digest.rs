@@ -242,14 +242,14 @@ mod impls {
         }
     }
 
-    impl<T: CryptoHash> CryptoHash for &T {
+    impl<T: CryptoHash + ?Sized> CryptoHash for &T {
         #[inline]
         fn crypto_hash<D: CryptoDigest, H: CryptoHasher<Output = D>>(&self, state: &mut H) {
             CryptoHash::crypto_hash(*self, state);
         }
     }
 
-    impl<T: CryptoHash> CryptoHash for &mut T {
+    impl<T: CryptoHash + ?Sized> CryptoHash for &mut T {
         #[inline]
         fn crypto_hash<D: CryptoDigest, H: CryptoHasher<Output = D>>(&self, state: &mut H) {
             CryptoHash::crypto_hash(*self, state);
@@ -277,14 +277,14 @@ mod impls {
         }
     }
 
-    impl<T: CryptoHash> CryptoHash for Rc<T> {
+    impl<T: CryptoHash + ?Sized> CryptoHash for Rc<T> {
         #[inline]
         fn crypto_hash<D: CryptoDigest, H: CryptoHasher<Output = D>>(&self, state: &mut H) {
             CryptoHash::crypto_hash(&self, state);
         }
     }
 
-    impl<T: CryptoHash> CryptoHash for Arc<T> {
+    impl<T: CryptoHash + ?Sized> CryptoHash for Arc<T> {
         #[inline]
         fn crypto_hash<D: CryptoDigest, H: CryptoHasher<Output = D>>(&self, state: &mut H) {
             CryptoHash::crypto_hash(&self, state);
