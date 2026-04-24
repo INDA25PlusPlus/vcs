@@ -1,5 +1,6 @@
 pub mod cache;
 pub mod in_memory_storage;
+mod slotmap;
 
 pub type StorageResult<T, E> = Result<T, StorageError<E>>;
 

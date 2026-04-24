@@ -1,10 +1,10 @@
+use super::slotmap::SlotMap;
 use crate::storage::{Storage, StorageError, StorageResult};
-use dashmap::DashMap;
 use elsa::sync::FrozenMap;
 use std::hash::Hash;
 use std::ops::Deref;
 use std::sync::Arc;
-use tokio::sync::{OnceCell, RwLock};
+use tokio::sync::OnceCell;
 
 /// Thread-safe append-only map with lazy loading from an external storage.
 /// Guarantees persistent key-to-value mappings if `S` makes that guarantee.
@@ -66,7 +66,7 @@ where
 
 /// Thread-safe mutable map with lazy loading and async storing to an external storage.
 pub struct MutableCache<K: Eq + Hash, V, S: Storage<K, V>> {
-    items: RwLock<DashMap<K, Arc<RwLock<MutableCacheEntry<V>>>>>,
+    items: SlotMap<K, MutableCacheEntry<V>>,
     storage: Arc<S>,
 }
 
@@ -79,7 +79,7 @@ impl<K: Eq + Hash, V, S: Storage<K, V>> MutableCache<K, V, S> {
     /// Create a new map backed by `storage`
     pub fn new(storage: Arc<S>) -> MutableCache<K, V, S> {
         MutableCache {
-            items: RwLock::new(DashMap::new()),
+            items: SlotMap::new(),
             storage,
         }
     }
@@ -96,9 +96,9 @@ where
         key: &K,
         f: impl AsyncFnOnce(&V) -> R,
     ) -> StorageResult<R, S::Error> {
-        let map_guard = self.items.read().await;
-
-        let entry = get_or_create_entry(&map_guard, key);
+        let entry = self
+            .items
+            .get_or_insert_with(key, || MutableCacheEntry::Value(OnceCell::new()));
         let entry_guard = entry.read().await;
 
         match entry_guard.deref() {
@@ -116,8 +116,7 @@ where
             }
             MutableCacheEntry::Tombstone => Err(StorageError::MissingObject),
         }
-        // drop entry guard
-        // drop map guard
+        // drop entry_guard
     }
 
     /// Update the value at `key` only if able to successfully store the value in storage.
@@ -125,9 +124,9 @@ where
     ///
     /// **Locking behavior:** Will deadlock if called from a closure passed into `get`.
     pub async fn update(&self, key: &K, value: V) -> Result<(), S::Error> {
-        let map_guard = self.items.read().await;
-
-        let entry = get_or_create_entry(&map_guard, key);
+        let entry = self
+            .items
+            .get_or_insert_with(key, || MutableCacheEntry::Value(OnceCell::new()));
         let mut entry_guard = entry.write().await;
 
         // guard ensures no concurrent stores from this cache, which is required for atomicity in
@@ -136,67 +135,45 @@ where
 
         *entry_guard = MutableCacheEntry::Value(OnceCell::from(value));
         Ok(())
-        // drop entry guard
-        // drop map guard
+        // drop entry_guard
     }
 
     /// Remove the entry at `key` only if able to successfully remove the value from storage.
     /// Concurrent calls to this method with `get` or `update` are guaranteed to leave the cache
     /// and storage in a consistent state.
+    ///
+    /// **Locking behavior:** Will deadlock if called from a closure passed into `get`.
     pub async fn remove(&self, key: &K) -> Result<(), S::Error> {
-        let map_guard = self.items.read().await;
-
-        let entry = get_or_create_entry(&map_guard, key);
+        let entry = self
+            .items
+            .get_or_insert_with(key, || MutableCacheEntry::Value(OnceCell::new()));
         let mut entry_guard = entry.write().await;
 
         // guard ensures no concurrent stores or deletions, which is required for atomicity.
-        let result = self.storage.delete(key).await;
-        if matches!(result, Ok(())) {
-            *entry_guard = MutableCacheEntry::Tombstone;
-        }
-        result
-        // drop entry guard
-        // drop map guard
+        self.storage.delete(key).await?;
+        *entry_guard = MutableCacheEntry::Tombstone;
+        Ok(())
+        // drop entry_guard
     }
 
     /// Run garbage collection on cached entries that have been removed. Not necessary for normal
     /// operation but will improve memory usage after removal of many entries.
     pub async fn cleanup(&self) {
-        let map_guard = self.items.write().await;
+        self.items.retain(|_, entry| {
+            if Arc::strong_count(entry) != 1 {
+                // Another task already has this slot handle. Keep it so that
+                // task cannot update a slot that has been detached from the map.
+                return true;
+            }
 
-        map_guard.retain(|_, v| {
-            let Ok(entry_guard) = v.try_read() else {
-                // this should be impossible as the entry lock may never block in this situation,
-                // because the map lock ensures no other threads may access the map.
-                debug_assert!(false, "entry lock blocks despite outer lock");
+            let Ok(entry_guard) = entry.try_read() else {
+                // With no external slot handles, no other task should be able to hold this lock.
+                debug_assert!(false, "Expected read guard");
                 return true;
             };
             matches!(entry_guard.deref(), MutableCacheEntry::Value(..))
             // drop guard
         });
-        // drop guard
-    }
-}
-
-fn get_or_create_entry<K, V>(
-    items: &DashMap<K, Arc<RwLock<MutableCacheEntry<V>>>>,
-    key: &K,
-) -> Arc<RwLock<MutableCacheEntry<V>>>
-where
-    K: Eq + Hash + Clone,
-{
-    if let Some(entry) = items.get(key) {
-        // need to clone Arc in order to drop reference into DashMap (which could otherwise
-        // cause locking issues)
-        entry.value().clone()
-    } else {
-        // only clone key if initial check shows that entry does not exist
-        // LOGICAL RACE: if entry is created by another thread here, we clone unnecessarily but
-        // don't lose any correctness
-        items
-            .entry(key.clone())
-            .or_insert_with(|| Arc::new(RwLock::new(MutableCacheEntry::Value(OnceCell::new()))))
-            .clone()
     }
 }
 
