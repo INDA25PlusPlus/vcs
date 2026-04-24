@@ -8,7 +8,7 @@ use crate::path::RepoPath;
 use crate::repo::index::Index;
 use crate::repo::repo_storage::RepoStorage;
 use crate::revision::{Patch, RevisionHeader, RevisionId, RevisionMetadata};
-use crate::storage::{LazyStorage, StorageResult};
+use crate::storage::{StorageResult, cache::FrozenCache};
 use std::error::Error;
 use std::hash::Hash;
 use std::sync::Arc;
@@ -23,16 +23,16 @@ where
 
     head: RevisionId<D>,
 
-    revision_headers: LazyStorage<RevisionId<D>, RevisionHeader<D>, S>,
-    revision_metadatas: LazyStorage<RevisionId<D>, RevisionMetadata<D>, S>,
+    revision_headers: FrozenCache<RevisionId<D>, RevisionHeader<D>, S>,
+    revision_metadatas: FrozenCache<RevisionId<D>, RevisionMetadata<D>, S>,
 
-    repo_diffs: LazyStorage<D, RepoDiff<D>, S>,
-    file_diffs: LazyStorage<D, FileDiff, S>,
+    repo_diffs: FrozenCache<D, RepoDiff<D>, S>,
+    file_diffs: FrozenCache<D, FileDiff, S>,
 }
 
 impl<D: CryptoDigest, S> Repository<D, S>
 where
-    D: Hash + Eq + Send + Sync,
+    D: Hash + Eq + Clone + Send + Sync,
     S: RepoStorage<D> + Send + Sync,
     S::RepoError: Error + Send,
 {
@@ -42,14 +42,14 @@ where
 
     pub async fn revision_header(
         &self,
-        id: RevisionId<D>,
+        id: &RevisionId<D>,
     ) -> StorageResult<&RevisionHeader<D>, S::RepoError> {
         self.revision_headers.get(id).await
     }
 
     pub async fn commit_metadata(
         &self,
-        id: RevisionId<D>,
+        id: &RevisionId<D>,
     ) -> StorageResult<&RevisionMetadata<D>, S::RepoError> {
         self.revision_metadatas.get(id).await
     }
