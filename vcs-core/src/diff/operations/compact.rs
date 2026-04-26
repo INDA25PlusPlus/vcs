@@ -43,7 +43,7 @@ impl Accumulation {
 
     /// Extends the current run with one more non-empty op.
     fn push(&mut self, op: Op, pending: &mut VecDeque<Op>) {
-        debug_assert!(op.len() != 0);
+        debug_assert!(!op.is_empty());
 
         match op {
             Op::Keep(len) => match self {
@@ -119,7 +119,7 @@ impl<I: Iterator<Item = Op>> Iterator for Compact<I> {
                 return self.pending.pop_front();
             };
 
-            if op.len() == 0 {
+            if op.is_empty() {
                 continue;
             }
 

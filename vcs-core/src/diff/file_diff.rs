@@ -1,6 +1,8 @@
 use crate::diff::hunk_collection::HunkCollection;
 
-#[derive(Debug)]
+pub type FileDiffRef<D> = D;
+
+#[derive(Clone, Debug)]
 pub enum FileDiff {
     Modify {
         hunks: HunkCollection,

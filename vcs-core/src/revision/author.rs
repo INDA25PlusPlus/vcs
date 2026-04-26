@@ -1,23 +1,23 @@
-use crate::crypto::digest::CryptoDigest;
-use crate::crypto::signature::SignedHash;
+use crate::crypto::digest::{CryptoDigest, CryptoHash};
+use crate::crypto::signature::SignedDigest;
 use crate::revision::timestamp::Timestamp;
 
 #[derive(Clone, Debug)]
-pub enum AuthorSignature<H: CryptoDigest> {
-    Signature(SignedHash<H>),
+pub enum AuthorSignature<D: CryptoDigest + CryptoHash> {
+    Signature(SignedDigest<D>),
     // GitAuthor...
 }
 
 #[derive(Clone, Debug)]
-pub struct Author<H: CryptoDigest> {
-    pub message: String,
+pub struct Author<D: CryptoDigest + CryptoHash> {
+    pub message: Box<str>,
     pub timestamp: Timestamp,
-    pub signature: AuthorSignature<H>,
+    pub signature: AuthorSignature<D>,
 }
 
 #[derive(Clone, Debug)]
-pub struct Committer<H: CryptoDigest> {
-    pub message: String,
+pub struct Committer<D: CryptoDigest + CryptoHash> {
+    pub message: Box<str>,
     pub timestamp: Timestamp,
-    pub signature: SignedHash<H>,
+    pub signature: SignedDigest<D>,
 }

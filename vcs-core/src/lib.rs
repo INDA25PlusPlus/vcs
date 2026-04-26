@@ -1,8 +1,8 @@
-mod crypto;
-mod diff;
+pub mod crypto;
+pub mod diff;
 mod path;
-mod repo;
-mod revision;
+pub mod repo;
+pub mod revision;
 pub mod storage;
 
 pub fn add(left: u64, right: u64) -> u64 {

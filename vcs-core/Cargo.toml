@@ -12,7 +12,7 @@ bytes = "1.11.1"
 elsa = "1.11.2"
 serde = "1.0.228"
 thiserror = "2.0.18"
-tokio = { version = "1.50.0", features = ["sync"] }
+tokio = { version = "1.50.0", features = ["macros", "rt", "sync"] }
 bytemuck = { version = "1.25.0", features = ["must_cast"] }
 
 [dev-dependencies]
