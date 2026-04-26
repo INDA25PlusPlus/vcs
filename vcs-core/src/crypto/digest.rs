@@ -9,7 +9,9 @@ pub trait CryptoDigest: Sized {
 
     fn bytes(&self) -> &[u8];
 
-    fn generate<T: CryptoHash>(item: &T) -> Self {
+    fn zero() -> Self;
+
+    fn generate<T: CryptoHash + ?Sized>(item: &T) -> Self {
         let mut hasher = Self::Hasher::default();
         item.crypto_hash(&mut hasher);
         hasher.finish()
@@ -20,12 +22,18 @@ pub trait CryptoDigest: Sized {
 pub trait CryptoHash {
     fn crypto_hash<D: CryptoDigest, H: CryptoHasher<Output = D>>(&self, state: &mut H);
 
+    #[inline]
     fn crypto_hash_slice<D: CryptoDigest, H: CryptoHasher<Output = D>>(data: &[Self], state: &mut H)
     where
         Self: Sized,
     {
         state.write_length_prefix(data.len());
         data.iter().for_each(|item| item.crypto_hash(state));
+    }
+
+    #[inline]
+    fn to_digest<D: CryptoDigest>(&self) -> D {
+        D::generate(self)
     }
 }
 
@@ -37,6 +45,7 @@ pub trait CryptoHasher {
 
     fn finish(&self) -> Self::Output;
 
+    #[inline]
     fn write_reader<R: Read>(&mut self, reader: &mut R) -> io::Result<()> {
         let mut bytes = Vec::new();
         let _ = reader.read_to_end(&mut bytes)?;

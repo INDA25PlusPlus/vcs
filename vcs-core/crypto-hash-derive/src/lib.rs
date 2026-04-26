@@ -52,7 +52,10 @@ fn struct_derive(
             .unnamed
             .iter()
             .zip(0..)
-            .map(|(_, i)| wrap_crypto_hash_fn(&mod_name, quote! { self.#i }))
+            .map(|(_, i)| {
+                let index = proc_macro2::Literal::u64_unsuffixed(i);
+                wrap_crypto_hash_fn(&mod_name, quote! { self.#index })
+            })
             .collect(),
         syn::Fields::Unit => {
             vec![quote! {}]

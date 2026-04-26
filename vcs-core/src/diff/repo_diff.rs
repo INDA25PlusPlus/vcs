@@ -1,12 +1,26 @@
 use std::collections::HashMap;
 
-use crate::crypto::digest::CryptoDigest;
+use crate::crypto::digest::{CryptoDigest, CryptoHash, CryptoHasher};
 use crate::path::RepoPath;
 
-pub type RepoDiffRef<H> = H;
+pub type RepoDiffRef<D> = D;
 
 /// Per-file diffs for a commit.
-#[derive(Debug)]
-pub struct RepoDiff<H: CryptoDigest> {
-    file_diffs: HashMap<RepoPath, H>,
+#[derive(Clone, Debug)]
+pub struct RepoDiff<D: CryptoDigest> {
+    file_diffs: HashMap<RepoPath, D>,
+}
+
+impl<D: CryptoDigest> RepoDiff<D> {
+    pub(crate) fn empty() -> RepoDiff<D> {
+        RepoDiff {
+            file_diffs: HashMap::new(),
+        }
+    }
+}
+
+impl<D: CryptoDigest> CryptoHash for RepoDiff<D> {
+    fn crypto_hash<OutD: CryptoDigest, H: CryptoHasher<Output = OutD>>(&self, state: &mut H) {
+        todo!()
+    }
 }

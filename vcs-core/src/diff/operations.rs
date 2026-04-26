@@ -54,6 +54,11 @@ impl Op {
             Op::Insert(buf) => buf.len(),
         }
     }
+
+    /// Returns true if self is empty
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 /// Small cursor wrapper that supports partially consuming ops.
