@@ -12,7 +12,7 @@ pub mod compose;
 
 use bytes::Bytes;
 
-use crate::diff::ops_stream::{compact::Compact, compose::Compose};
+use crate::diff::operations::{compact::Compact, compose::Compose};
 
 /// A single edit operation.
 #[derive(Debug, Clone, PartialEq, Eq)]
