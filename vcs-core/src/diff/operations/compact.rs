@@ -1,6 +1,6 @@
 use std::{collections::VecDeque, mem};
 
-use crate::diff::ops_stream::Op;
+use crate::diff::operations::Op;
 
 /// Compacts an [`Op`] stream into the fewest possible [`Op`] while still representing the same diff.
 ///
