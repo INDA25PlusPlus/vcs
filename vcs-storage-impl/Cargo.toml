@@ -5,4 +5,5 @@ edition = "2024"
 
 [dependencies]
 dashmap = "6.1.0"
+serde = "1.0.228"
 vcs-core = { path = "../vcs-core" }
