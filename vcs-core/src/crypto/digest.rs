@@ -1,6 +1,8 @@
 use std::io;
 use std::io::Read;
 
+mod blake3;
+
 /// Result of applying a cryptographically secure hashing algorithm to an object
 pub trait CryptoDigest: Sized {
     type Hasher: CryptoHasher<Output = Self> + Default;
