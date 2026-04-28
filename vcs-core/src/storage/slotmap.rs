@@ -2,7 +2,7 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 use dashmap::DashMap;
-use tokio::sync::RwLock;
+use tokio::sync::{OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock};
 
 /// Concurrent key-to-slot map for values that need async per-key access.
 ///
@@ -28,12 +28,17 @@ impl<K: Eq + Hash, V> SlotMap<K, V> {
         }
     }
 
+    /// Return the slot for `key`, if present.
+    pub fn slot(&self, key: &K) -> Option<Arc<RwLock<V>>> {
+        self.inner.get(key).map(|entry| Arc::clone(entry.value()))
+    }
+
     /// Return a slot for `key`, inserting `init()` if absent.
     ///
     /// `init()` is synchronous and is called at most once for a given inserted
     /// slot. Async initialization should be done inside the slot value, for
     /// example with `tokio::sync::OnceCell`.
-    pub fn get_or_insert_with(&self, key: &K, init: impl FnOnce() -> V) -> Arc<RwLock<V>>
+    pub fn slot_or_insert_with(&self, key: &K, init: impl FnOnce() -> V) -> Arc<RwLock<V>>
     where
         K: Clone,
     {
@@ -41,6 +46,44 @@ impl<K: Eq + Hash, V> SlotMap<K, V> {
             .entry(key.clone())
             .or_insert_with(|| Arc::new(RwLock::new(init())))
             .clone()
+    }
+
+    /// Read-lock the slot for `key`, if present.
+    pub async fn read(&self, key: &K) -> Option<OwnedRwLockReadGuard<V>> {
+        let slot = self.slot(key)?;
+        Some(slot.read_owned().await)
+    }
+
+    /// Write-lock the slot for `key`, if present.
+    pub async fn write(&self, key: &K) -> Option<OwnedRwLockWriteGuard<V>> {
+        let slot = self.slot(key)?;
+        Some(slot.write_owned().await)
+    }
+
+    /// Read-lock the slot for `key`, inserting `init()` if absent.
+    pub async fn read_or_insert_with(
+        &self,
+        key: &K,
+        init: impl FnOnce() -> V,
+    ) -> OwnedRwLockReadGuard<V>
+    where
+        K: Clone,
+    {
+        let slot = self.slot_or_insert_with(key, init);
+        slot.read_owned().await
+    }
+
+    /// Write-lock the slot for `key`, inserting `init()` if absent.
+    pub async fn write_or_insert_with(
+        &self,
+        key: &K,
+        init: impl FnOnce() -> V,
+    ) -> OwnedRwLockWriteGuard<V>
+    where
+        K: Clone,
+    {
+        let slot = self.slot_or_insert_with(key, init);
+        slot.write_owned().await
     }
 
     /// Retain only slots satisfying `predicate`.

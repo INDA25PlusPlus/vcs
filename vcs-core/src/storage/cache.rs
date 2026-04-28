@@ -96,12 +96,12 @@ where
         key: &K,
         f: impl AsyncFnOnce(&V) -> R,
     ) -> StorageResult<R, S::Error> {
-        let entry = self
+        let slot_guard = self
             .items
-            .get_or_insert_with(key, || MutableCacheEntry::Value(OnceCell::new()));
-        let entry_guard = entry.read().await;
+            .read_or_insert_with(key, || MutableCacheEntry::Value(OnceCell::new()))
+            .await;
 
-        match entry_guard.deref() {
+        match slot_guard.deref() {
             MutableCacheEntry::Value(cell) => {
                 // get_or_try_init ensures that the current thread will wait for other threads
                 // before retrieving the initialized value
@@ -116,7 +116,7 @@ where
             }
             MutableCacheEntry::Tombstone => Err(StorageError::MissingObject),
         }
-        // drop entry_guard
+        // drop slot_guard
     }
 
     /// Set the value at `key` only if able to successfully store the value in storage.
@@ -124,18 +124,18 @@ where
     ///
     /// **Locking behavior:** Will deadlock if called from a closure passed into `get`.
     pub async fn set(&self, key: &K, value: V) -> Result<(), S::Error> {
-        let entry = self
+        let mut slot_guard = self
             .items
-            .get_or_insert_with(key, || MutableCacheEntry::Value(OnceCell::new()));
-        let mut entry_guard = entry.write().await;
+            .write_or_insert_with(key, || MutableCacheEntry::Value(OnceCell::new()))
+            .await;
 
         // guard ensures no concurrent stores from this cache, which is required for atomicity in
         // this function
         self.storage.store(key, &value).await?;
 
-        *entry_guard = MutableCacheEntry::Value(OnceCell::from(value));
+        *slot_guard = MutableCacheEntry::Value(OnceCell::from(value));
         Ok(())
-        // drop entry_guard
+        // drop slot_guard
     }
 
     /// Update the value at `key` with `f`, only if able to successfully store the updated value in
@@ -148,12 +148,12 @@ where
         key: &K,
         f: impl AsyncFnOnce(&V) -> V,
     ) -> StorageResult<(), S::Error> {
-        let entry = self
+        let mut slot_guard = self
             .items
-            .get_or_insert_with(key, || MutableCacheEntry::Value(OnceCell::new()));
-        let mut entry_guard = entry.write().await;
+            .write_or_insert_with(key, || MutableCacheEntry::Value(OnceCell::new()))
+            .await;
 
-        let updated_value = match entry_guard.deref() {
+        let updated_value = match slot_guard.deref() {
             MutableCacheEntry::Value(cell) => {
                 // get_or_try_init ensures that the current thread will wait for other threads
                 // before retrieving the initialized value
@@ -174,9 +174,9 @@ where
             .await
             .map_err(StorageError::InternalError)?;
 
-        *entry_guard = MutableCacheEntry::Value(OnceCell::from(updated_value));
+        *slot_guard = MutableCacheEntry::Value(OnceCell::from(updated_value));
         Ok(())
-        // drop entry_guard
+        // drop slot_guard
     }
 
     /// Remove the entry at `key` only if able to successfully remove the value from storage.
@@ -185,16 +185,16 @@ where
     ///
     /// **Locking behavior:** Will deadlock if called from a closure passed into `get`.
     pub async fn remove(&self, key: &K) -> Result<(), S::Error> {
-        let entry = self
+        let mut slot_guard = self
             .items
-            .get_or_insert_with(key, || MutableCacheEntry::Value(OnceCell::new()));
-        let mut entry_guard = entry.write().await;
+            .write_or_insert_with(key, || MutableCacheEntry::Value(OnceCell::new()))
+            .await;
 
         // guard ensures no concurrent stores or deletions, which is required for atomicity.
         self.storage.delete(key).await?;
-        *entry_guard = MutableCacheEntry::Tombstone;
+        *slot_guard = MutableCacheEntry::Tombstone;
         Ok(())
-        // drop entry_guard
+        // drop slot_guard
     }
 
     /// Run garbage collection on cached entries that have been removed. Not necessary for normal
@@ -207,12 +207,12 @@ where
                 return true;
             }
 
-            let Ok(entry_guard) = entry.try_read() else {
+            let Ok(slot_guard) = entry.try_read() else {
                 // With no external slot handles, no other task should be able to hold this lock.
                 debug_assert!(false, "Expected read guard");
                 return true;
             };
-            matches!(entry_guard.deref(), MutableCacheEntry::Value(..))
+            matches!(slot_guard.deref(), MutableCacheEntry::Value(..))
             // drop guard
         });
     }
