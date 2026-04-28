@@ -1,14 +1,14 @@
-use std::hash::Hash;
-use std::{collections::HashSet, error::Error};
+pub mod path;
 
 use crate::{
     crypto::digest::{CryptoDigest, CryptoHash},
-    path::RepoPath,
     repo::{Repo, repo_storage::RepoStorage},
-    storage::Storage,
 };
+use path::RepoPath;
+use std::{collections::HashSet, error::Error};
+use std::{future::Future, hash::Hash};
 
-struct File {
+pub struct File {
     content: Box<[u8]>,
     executable: bool,
 }

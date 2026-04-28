@@ -1,7 +1,6 @@
 pub mod crypto;
 pub mod diff;
 pub mod fs;
-mod path;
 pub mod repo;
 pub mod revision;
 pub mod storage;
