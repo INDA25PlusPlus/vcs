@@ -3,8 +3,8 @@ use std::hash::Hash;
 use vcs_core::crypto::digest::{CryptoDigest, CryptoHash};
 use vcs_core::diff::file_diff::{FileDiff, FileDiffRef};
 use vcs_core::diff::repo_diff::{RepoDiff, RepoDiffRef};
-use vcs_core::repo::index::Index;
 use vcs_core::repo::repo_storage::RepoStorage;
+use vcs_core::repo::{PendingChanges, StagedChanges};
 use vcs_core::revision::{RevisionHeader, RevisionId, RevisionMetadata};
 use vcs_core::storage::{SingletonStorage, Storage, StorageError, StorageResult};
 
@@ -96,7 +96,8 @@ memory_repo_storage! {
     head: MemoryStorage<(), RevisionId<D>>,
     revision_headers: MemoryStorage<RevisionId<D>, RevisionHeader<D>>,
     revision_metadatas: MemoryStorage<RevisionId<D>, RevisionMetadata<D>>,
-    indexes: MemoryStorage<RevisionId<D>, Index<D>>,
+    pending_changes: MemoryStorage<RevisionId<D>, PendingChanges<D>>,
+    staged_changes: MemoryStorage<RevisionId<D>, StagedChanges<D>>,
     repo_diffs: MemoryStorage<RepoDiffRef<D>, RepoDiff<D>>,
     file_diffs: MemoryStorage<FileDiffRef<D>, FileDiff>,
 }

@@ -1,11 +1,11 @@
-pub mod index;
 pub mod repo_storage;
+
+use crypto_hash_derive::CryptoHash;
 
 use crate::crypto::digest::{CryptoDigest, CryptoHash};
 use crate::crypto::signature::SignContext;
 use crate::diff::file_diff::FileDiff;
 use crate::diff::repo_diff::RepoDiff;
-use crate::repo::index::Index;
 use crate::repo::repo_storage::RepoStorage;
 use crate::revision::{Revision, RevisionHeader, RevisionId, RevisionMetadata};
 use crate::storage::cache::MutableCache;
@@ -13,6 +13,12 @@ use crate::storage::{StorageError, StorageResult, cache::FrozenCache};
 use std::error::Error;
 use std::hash::Hash;
 use std::sync::Arc;
+
+#[derive(Clone, CryptoHash, Debug)]
+pub struct PendingChanges<D: CryptoDigest>(pub RepoDiff<D>);
+
+#[derive(Clone, CryptoHash, Debug)]
+pub struct StagedChanges<D: CryptoDigest>(pub RepoDiff<D>);
 
 pub struct Repo<D: CryptoDigest + CryptoHash, S>
 where
@@ -25,7 +31,8 @@ where
     revision_headers: MutableCache<RevisionId<D>, RevisionHeader<D>, S>,
     revision_metadatas: MutableCache<RevisionId<D>, RevisionMetadata<D>, S>,
 
-    indexes: MutableCache<RevisionId<D>, Index<D>, S>,
+    pending_changes: MutableCache<RevisionId<D>, RepoDiff<D>, S>,
+    staged_changes: MutableCache<RevisionId<D>, RepoDiff<D>, S>,
 
     repo_diffs: FrozenCache<D, RepoDiff<D>, S>,
     file_diffs: FrozenCache<D, FileDiff, S>,
@@ -81,7 +88,8 @@ where
             head,
             revision_headers,
             revision_metadatas,
-            indexes: MutableCache::new(storage.clone()),
+            pending_changes: MutableCache::new(storage.clone()),
+            staged_changes: MutableCache::new(storage.clone()),
             repo_diffs: FrozenCache::new(storage.clone()),
             file_diffs: FrozenCache::new(storage.clone()),
             storage,
@@ -93,7 +101,8 @@ where
             head: MutableCache::new(storage.clone()),
             revision_headers: MutableCache::new(storage.clone()),
             revision_metadatas: MutableCache::new(storage.clone()),
-            indexes: MutableCache::new(storage.clone()),
+            pending_changes: MutableCache::new(storage.clone()),
+            staged_changes: MutableCache::new(storage.clone()),
             repo_diffs: FrozenCache::new(storage.clone()),
             file_diffs: FrozenCache::new(storage.clone()),
             storage,
@@ -114,14 +123,14 @@ where
             .map_err(RepoError::StorageError)
     }
 
-    pub async fn working_tree_at(
+    pub async fn pending_changes_at(
         &self,
         revision_id: RevisionId<D>,
     ) -> RepoResult<(), S::RepoStorageError> {
         todo!("load from disk to working tree at `rev`")
     }
 
-    pub async fn set_working_tree_at(
+    pub async fn set_pending_changes_at(
         &self,
         revision_id: RevisionId<D>,
         diff: RepoDiff<D>,
@@ -129,14 +138,14 @@ where
         todo!("store working tree at `rev` to disk")
     }
 
-    pub async fn index_at(
+    pub async fn staged_changes_at(
         &self,
         revision_id: RevisionId<D>,
     ) -> RepoResult<RepoDiff<D>, S::RepoStorageError> {
         todo!("get diff from Head at `rev` to index at `rev`")
     }
 
-    pub async fn set_index_at(
+    pub async fn set_staged_changes_at(
         &self,
         revision_id: RevisionId<D>,
         diff: RepoDiff<D>,
