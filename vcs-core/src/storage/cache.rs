@@ -221,6 +221,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
 
     struct TestStorage;
 
@@ -252,5 +253,77 @@ mod tests {
         // compile error if the future returned from storage.get doesn't
         // implement Send
         require_send(storage.get(&()));
+    }
+
+    struct IntStorage {
+        value: Mutex<Option<i32>>,
+    }
+
+    impl IntStorage {
+        fn new() -> Self {
+            Self {
+                value: Mutex::new(None),
+            }
+        }
+    }
+
+    impl Storage<(), i32> for IntStorage {
+        type Error = ();
+
+        async fn load(&self, _key: &()) -> StorageResult<i32, Self::Error> {
+            self.value
+                .lock()
+                .unwrap()
+                .ok_or(StorageError::MissingObject)
+        }
+
+        async fn store(&self, _key: &(), value: &i32) -> Result<(), Self::Error> {
+            *self.value.lock().unwrap() = Some(*value);
+            Ok(())
+        }
+
+        async fn delete(&self, _key: &()) -> Result<(), Self::Error> {
+            *self.value.lock().unwrap() = None;
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn mutable_cache_set_update_get_round_trip() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+
+        runtime.block_on(async {
+            let cache = Arc::new(MutableCache::new(Arc::new(IntStorage::new())));
+
+            cache.set(&(), 1).await.unwrap();
+            cache.update(&(), async |value| *value + 1).await.unwrap();
+
+            let value = cache.get(&(), async |value| *value).await.unwrap();
+            assert_eq!(value, 2);
+
+            let update = || {
+                let cache = Arc::clone(&cache);
+                tokio::spawn(async move {
+                    cache.update(&(), async |value| *value + 1).await.unwrap();
+                })
+            };
+            let read = || {
+                let cache = Arc::clone(&cache);
+                tokio::spawn(async move { cache.get(&(), async |value| *value).await.unwrap() })
+            };
+
+            let (first_update, second_update, third_update, first_read) =
+                tokio::join!(update(), update(), update(), read());
+            first_update.unwrap();
+            second_update.unwrap();
+            third_update.unwrap();
+            first_read.unwrap();
+
+            let (second_read, third_read) = tokio::join!(read(), read());
+            assert_eq!(second_read.unwrap(), 5);
+            assert_eq!(third_read.unwrap(), 5);
+        });
     }
 }
