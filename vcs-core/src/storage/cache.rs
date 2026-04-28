@@ -119,11 +119,11 @@ where
         // drop entry_guard
     }
 
-    /// Update the value at `key` only if able to successfully store the value in storage.
+    /// Set the value at `key` only if able to successfully store the value in storage.
     /// Concurrent calls to this method are guaranteed to perform the stores atomically.
     ///
     /// **Locking behavior:** Will deadlock if called from a closure passed into `get`.
-    pub async fn update(&self, key: &K, value: V) -> Result<(), S::Error> {
+    pub async fn set(&self, key: &K, value: V) -> Result<(), S::Error> {
         let entry = self
             .items
             .get_or_insert_with(key, || MutableCacheEntry::Value(OnceCell::new()));
@@ -138,9 +138,50 @@ where
         // drop entry_guard
     }
 
+    /// Update the value at `key` with `f`, only if able to successfully store the updated value in
+    /// storage. Concurrent calls to this method are guaranteed to perform the load, update, store,
+    /// and cache replacement atomically.
+    ///
+    /// **Locking behavior:** Will deadlock if called from a closure passed into `get`.
+    pub async fn update(
+        &self,
+        key: &K,
+        f: impl AsyncFnOnce(&V) -> V,
+    ) -> StorageResult<(), S::Error> {
+        let entry = self
+            .items
+            .get_or_insert_with(key, || MutableCacheEntry::Value(OnceCell::new()));
+        let mut entry_guard = entry.write().await;
+
+        let updated_value = match entry_guard.deref() {
+            MutableCacheEntry::Value(cell) => {
+                // get_or_try_init ensures that the current thread will wait for other threads
+                // before retrieving the initialized value
+                let value = cell
+                    .get_or_try_init(async || {
+                        let value = self.storage.load(key).await?;
+                        Ok(value)
+                    })
+                    .await?;
+
+                f(value).await
+            }
+            MutableCacheEntry::Tombstone => return Err(StorageError::MissingObject),
+        };
+
+        self.storage
+            .store(key, &updated_value)
+            .await
+            .map_err(StorageError::InternalError)?;
+
+        *entry_guard = MutableCacheEntry::Value(OnceCell::from(updated_value));
+        Ok(())
+        // drop entry_guard
+    }
+
     /// Remove the entry at `key` only if able to successfully remove the value from storage.
-    /// Concurrent calls to this method with `get` or `update` are guaranteed to leave the cache
-    /// and storage in a consistent state.
+    /// Concurrent calls to this method with `get`, `set`, or `update` are guaranteed to leave the
+    /// cache and storage in a consistent state.
     ///
     /// **Locking behavior:** Will deadlock if called from a closure passed into `get`.
     pub async fn remove(&self, key: &K) -> Result<(), S::Error> {
