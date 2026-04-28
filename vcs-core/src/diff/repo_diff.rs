@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::crypto::digest::{CryptoDigest, CryptoHash, CryptoHasher};
-use crate::path::RepoPath;
+use crate::fs::path::RepoPath;
 
 pub type RepoDiffRef<D> = D;
 
