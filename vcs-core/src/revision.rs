@@ -113,7 +113,7 @@ where
         parent: RevisionId<D>,
         patches: Box<[Patch<D>]>,
     ) -> Revision<D> {
-        let repo_diff = repo.squash(&patches).await;
+        let repo_diff = todo!(); // repo.squash(&patches).await;
         Revision {
             header: RevisionHeader { repo_diff, parent },
             metadata: RevisionMetadata {

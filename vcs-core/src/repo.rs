@@ -8,7 +8,7 @@ use crate::diff::repo_diff::{RepoDiff, RepoDiffRef};
 use crate::path::RepoPath;
 use crate::repo::index::Index;
 use crate::repo::repo_storage::RepoStorage;
-use crate::revision::{Patch, Revision, RevisionHeader, RevisionId, RevisionMetadata};
+use crate::revision::{Revision, RevisionHeader, RevisionId, RevisionMetadata};
 use crate::storage::cache::MutableCache;
 use crate::storage::{StorageError, StorageResult, cache::FrozenCache};
 use std::error::Error;
@@ -61,6 +61,7 @@ where
         storage: Arc<S>,
         sign_context: SignContext<'_>,
     ) -> RepoResult<Repository<D, S>, S::RepoStorageError> {
+        // todo: store repo diff
         let init_rev = Revision::new_initial(sign_context);
         let init_rev_digest: D = init_rev.to_digest();
 
@@ -104,30 +105,113 @@ where
         storage_expect(self.head.get(&(), async |v| v.clone()).await)
     }
 
-    /// Generates a new repo diff from a series of patches, stores it to storage and returns its
-    /// hash.
-    pub async fn squash(&self, patches: &[Patch<D>]) -> RepoDiffRef<D> {
+    pub async fn set_head(
+        &self,
+        revision_id: RevisionId<D>,
+    ) -> RepoResult<(), S::RepoStorageError> {
+        self.head
+            .set(&(), revision_id)
+            .await
+            .map_err(RepoError::StorageError)
+    }
+
+    pub async fn load_working_tree(
+        &self,
+        revision_id: RevisionId<D>,
+        path: RepoPath,
+    ) -> RepoResult<(), S::RepoStorageError> {
+        todo!("load from disk to working tree at `rev`")
+    }
+
+    pub async fn store_working_tree(
+        &self,
+        revision_id: RevisionId<D>,
+        path: RepoPath,
+    ) -> RepoResult<(), S::RepoStorageError> {
+        todo!("store working tree at `rev` to disk")
+    }
+
+    pub async fn get_working_tree(
+        &self,
+        revision_id: RevisionId<D>,
+    ) -> RepoResult<RepoDiff<D>, S::RepoStorageError> {
+        todo!("get diff from Head at `rev` to working tree at `rev`")
+    }
+
+    pub async fn apply_working_tree(
+        &self,
+        revision_id: RevisionId<D>,
+        diff: RepoDiff<D>,
+    ) -> RepoResult<(), S::RepoStorageError> {
+        todo!("apply diff to working tree at `rev`")
+    }
+
+    pub async fn restore_working_tree(
+        &self,
+        revision_id: RevisionId<D>,
+        path: RepoPath,
+    ) -> RepoResult<(), S::RepoStorageError> {
+        todo!(
+            "restore working tree at `rev` to head at `rev`, applying only to `path` and subpaths"
+        )
+    }
+
+    pub async fn get_index(
+        &self,
+        revision_id: RevisionId<D>,
+    ) -> RepoResult<RepoDiff<D>, S::RepoStorageError> {
+        todo!("get diff from Head at `rev` to index at `rev`")
+    }
+
+    pub async fn apply_index(
+        &self,
+        revision_id: RevisionId<D>,
+        diff: RepoDiff<D>,
+    ) -> RepoResult<(), S::RepoStorageError> {
+        todo!("apply diff to index at `rev`")
+    }
+
+    pub async fn restore_index(
+        &self,
+        revision_id: RevisionId<D>,
+        path: RepoPath,
+    ) -> RepoResult<(), S::RepoStorageError> {
+        todo!("restore index at `rev` to head at `rev`, applying only to `path` and subpaths")
+    }
+
+    pub async fn get_diff(
+        &self,
+        repo_diff_ref: RepoDiffRef<D>,
+    ) -> RepoResult<&RepoDiff<D>, S::RepoStorageError> {
         todo!()
     }
 
-    pub async fn index(&self, id: RevisionId<D>) -> StorageResult<&Index<D>, S::RepoStorageError> {
-        todo!()
-        // repo_result(<S as Storage<CommitId, Index<H>>>::load(self, &id).await)
-    }
-
-    pub async fn create_patch(&mut self, message: String) {
+    pub async fn insert_diff(&self, repo_diff: RepoDiff<D>) -> RepoResult<(), S::RepoStorageError> {
         todo!()
     }
 
-    pub async fn stage(&self, repo_path: &RepoPath) -> RepoResult<(), S::RepoStorageError> {
+    pub async fn get_revision_header(
+        &self,
+        revision_id: RevisionId<D>,
+    ) -> RepoResult<RevisionHeader<D>, S::RepoStorageError> {
+        // clone rev header
         todo!()
     }
 
-    pub async fn unstage(&mut self, repo_path: &RepoPath) {
+    pub async fn get_revision_metadata<R>(
+        &self,
+        revision_id: RevisionId<D>,
+        f: impl AsyncFnOnce(&RevisionMetadata<D>) -> R,
+    ) -> RepoResult<R, S::RepoStorageError> {
         todo!()
     }
 
-    pub async fn checkout(&mut self, commit_id: &RevisionId<D>) {
+    pub async fn insert_revision(
+        &self,
+        revision: Revision<D>,
+    ) -> RepoResult<(), S::RepoStorageError> {
+        // check that parent exists
+        // if `revision` is committed, check that parent is committed
         todo!()
     }
 }
