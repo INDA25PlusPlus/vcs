@@ -96,3 +96,27 @@ impl<K: Eq + Hash, V> SlotMap<K, V> {
         self.inner.len()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn read_and_write_round_trip() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+
+        runtime.block_on(async {
+            let map = SlotMap::new();
+
+            {
+                let mut value = map.write_or_insert_with(&"key", || 1).await;
+                *value += 1;
+            }
+
+            let value = map.read(&"key").await.unwrap();
+            assert_eq!(*value, 2);
+        });
+    }
+}
