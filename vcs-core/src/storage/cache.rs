@@ -294,42 +294,31 @@ mod tests {
         }
     }
 
-    #[test]
-    fn mutable_cache_set_update_get_round_trip() {
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .build()
-            .unwrap();
+    #[tokio::test]
+    async fn mutable_cache_set_update_get_round_trip() {
+        let cache = Arc::new(MutableCache::new(Arc::new(IntStorage::new())));
 
-        runtime.block_on(async {
-            let cache = Arc::new(MutableCache::new(Arc::new(IntStorage::new())));
+        cache.set(&(), 1).await.unwrap();
+        cache.update(&(), async |value| *value + 1).await.unwrap();
 
-            cache.set(&(), 1).await.unwrap();
-            cache.update(&(), async |value| *value + 1).await.unwrap();
+        let value = cache.get(&(), async |value| *value).await.unwrap();
+        assert_eq!(value, 2);
 
-            let value = cache.get(&(), async |value| *value).await.unwrap();
-            assert_eq!(value, 2);
+        let update = || {
+            let cache = Arc::clone(&cache);
+            tokio::spawn(async move {
+                cache.update(&(), async |value| *value + 1).await.unwrap();
+            })
+        };
+        let read = || {
+            let cache = Arc::clone(&cache);
+            tokio::spawn(async move { cache.get(&(), async |value| *value).await.unwrap() })
+        };
 
-            let update = || {
-                let cache = Arc::clone(&cache);
-                tokio::spawn(async move {
-                    cache.update(&(), async |value| *value + 1).await.unwrap();
-                })
-            };
-            let read = || {
-                let cache = Arc::clone(&cache);
-                tokio::spawn(async move { cache.get(&(), async |value| *value).await.unwrap() })
-            };
+        let result = tokio::try_join!(update(), update(), update(), read());
+        result.unwrap();
 
-            let (first_update, second_update, third_update, first_read) =
-                tokio::join!(update(), update(), update(), read());
-            first_update.unwrap();
-            second_update.unwrap();
-            third_update.unwrap();
-            first_read.unwrap();
-
-            let (second_read, third_read) = tokio::join!(read(), read());
-            assert_eq!(second_read.unwrap(), 5);
-            assert_eq!(third_read.unwrap(), 5);
-        });
+        let result = tokio::try_join!(read(), read());
+        assert_eq!(result.unwrap(), (5, 5));
     }
 }
