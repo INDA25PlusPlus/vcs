@@ -4,8 +4,7 @@ pub mod repo_storage;
 use crate::crypto::digest::{CryptoDigest, CryptoHash};
 use crate::crypto::signature::SignContext;
 use crate::diff::file_diff::FileDiff;
-use crate::diff::repo_diff::{RepoDiff, RepoDiffRef};
-use crate::path::RepoPath;
+use crate::diff::repo_diff::RepoDiff;
 use crate::repo::index::Index;
 use crate::repo::repo_storage::RepoStorage;
 use crate::revision::{Revision, RevisionHeader, RevisionId, RevisionMetadata};
@@ -115,55 +114,29 @@ where
             .map_err(RepoError::StorageError)
     }
 
-    pub async fn load_working_tree(
+    pub async fn working_tree_at(
         &self,
         revision_id: RevisionId<D>,
-        path: RepoPath,
     ) -> RepoResult<(), S::RepoStorageError> {
         todo!("load from disk to working tree at `rev`")
     }
 
-    pub async fn store_working_tree(
-        &self,
-        revision_id: RevisionId<D>,
-        path: RepoPath,
-    ) -> RepoResult<(), S::RepoStorageError> {
-        todo!("store working tree at `rev` to disk")
-    }
-
-    pub async fn get_working_tree(
-        &self,
-        revision_id: RevisionId<D>,
-    ) -> RepoResult<RepoDiff<D>, S::RepoStorageError> {
-        todo!("get diff from Head at `rev` to working tree at `rev`")
-    }
-
-    pub async fn apply_working_tree(
+    pub async fn set_working_tree_at(
         &self,
         revision_id: RevisionId<D>,
         diff: RepoDiff<D>,
     ) -> RepoResult<(), S::RepoStorageError> {
-        todo!("apply diff to working tree at `rev`")
+        todo!("store working tree at `rev` to disk")
     }
 
-    pub async fn restore_working_tree(
-        &self,
-        revision_id: RevisionId<D>,
-        path: RepoPath,
-    ) -> RepoResult<(), S::RepoStorageError> {
-        todo!(
-            "restore working tree at `rev` to head at `rev`, applying only to `path` and subpaths"
-        )
-    }
-
-    pub async fn get_index(
+    pub async fn index_at(
         &self,
         revision_id: RevisionId<D>,
     ) -> RepoResult<RepoDiff<D>, S::RepoStorageError> {
         todo!("get diff from Head at `rev` to index at `rev`")
     }
 
-    pub async fn apply_index(
+    pub async fn set_index_at(
         &self,
         revision_id: RevisionId<D>,
         diff: RepoDiff<D>,
@@ -171,24 +144,12 @@ where
         todo!("apply diff to index at `rev`")
     }
 
-    pub async fn restore_index(
-        &self,
-        revision_id: RevisionId<D>,
-        path: RepoPath,
-    ) -> RepoResult<(), S::RepoStorageError> {
-        todo!("restore index at `rev` to head at `rev`, applying only to `path` and subpaths")
-    }
-
-    pub async fn get_diff(
-        &self,
-        repo_diff_ref: RepoDiffRef<D>,
-    ) -> RepoResult<&RepoDiff<D>, S::RepoStorageError> {
-        todo!()
-    }
-
-    pub async fn insert_diff(&self, repo_diff: RepoDiff<D>) -> RepoResult<(), S::RepoStorageError> {
-        todo!()
-    }
+    // pub async fn get_diff(
+    //     &self,
+    //     repo_diff_ref: RepoDiffRef<D>,
+    // ) -> RepoResult<&RepoDiff<D>, S::RepoStorageError> {
+    //     todo!()
+    // }
 
     pub async fn get_revision_header(
         &self,
@@ -198,11 +159,10 @@ where
         todo!()
     }
 
-    pub async fn get_revision_metadata<R>(
+    pub async fn get_revision_metadata(
         &self,
         revision_id: RevisionId<D>,
-        f: impl AsyncFnOnce(&RevisionMetadata<D>) -> R,
-    ) -> RepoResult<R, S::RepoStorageError> {
+    ) -> RepoResult<RevisionMetadata<D>, S::RepoStorageError> {
         todo!()
     }
 
