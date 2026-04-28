@@ -1,4 +1,4 @@
-use crate::crypto::digest::{CryptoDigest, CryptoHasher};
+use crate::crypto::digest::{CryptoDigest, CryptoHash, CryptoHasher};
 
 impl CryptoDigest for blake3::Hash {
     type Hasher = blake3::Hasher;
@@ -9,6 +9,12 @@ impl CryptoDigest for blake3::Hash {
 
     fn zero() -> Self {
         blake3::Hash::from_bytes([0; blake3::OUT_LEN])
+    }
+}
+
+impl CryptoHash for blake3::Hash {
+    fn crypto_hash<D: CryptoDigest, H: CryptoHasher<Output = D>>(&self, state: &mut H) {
+        state.write(self.as_bytes())
     }
 }
 
