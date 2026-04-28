@@ -15,7 +15,7 @@ use std::error::Error;
 use std::hash::Hash;
 use std::sync::Arc;
 
-pub struct Repository<D: CryptoDigest + CryptoHash, S>
+pub struct Repo<D: CryptoDigest + CryptoHash, S>
 where
     D: Hash + Eq + Send + Sync,
     S: RepoStorage<D>,
@@ -51,7 +51,7 @@ fn storage_expect<T, E>(result: StorageResult<T, E>) -> RepoResult<T, E> {
     })
 }
 
-impl<D: CryptoDigest + CryptoHash, S> Repository<D, S>
+impl<D: CryptoDigest + CryptoHash, S> Repo<D, S>
 where
     D: Hash + Eq + Clone + Send + Sync,
     S: RepoStorage<D> + Send + Sync,
@@ -60,7 +60,7 @@ where
     pub async fn init(
         storage: Arc<S>,
         sign_context: SignContext<'_>,
-    ) -> RepoResult<Repository<D, S>, S::RepoStorageError> {
+    ) -> RepoResult<Repo<D, S>, S::RepoStorageError> {
         // todo: store repo diff
         let init_rev = Revision::new_initial(sign_context);
         let init_rev_digest: D = init_rev.to_digest();
@@ -78,7 +78,7 @@ where
         );
         result.map_err(RepoError::StorageError)?;
 
-        Ok(Repository {
+        Ok(Repo {
             head,
             revision_headers,
             revision_metadatas,
@@ -89,8 +89,8 @@ where
         })
     }
 
-    pub async fn load(storage: Arc<S>) -> Repository<D, S> {
-        Repository {
+    pub async fn load(storage: Arc<S>) -> Repo<D, S> {
+        Repo {
             head: MutableCache::new(storage.clone()),
             revision_headers: MutableCache::new(storage.clone()),
             revision_metadatas: MutableCache::new(storage.clone()),
