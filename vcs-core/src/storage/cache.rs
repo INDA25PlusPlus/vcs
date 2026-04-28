@@ -91,6 +91,9 @@ where
 {
     /// Get the value at `key` if it is loaded, or try to load it from storage. Access to the value
     /// is provided through `f`.
+    ///
+    /// **Locking behavior:** Will deadlock if called from a closure passed into `get` or `update`
+    /// on the same `key`.
     pub async fn get<R>(
         &self,
         key: &K,
@@ -122,7 +125,8 @@ where
     /// Set the value at `key` only if able to successfully store the value in storage.
     /// Concurrent calls to this method are guaranteed to perform the stores atomically.
     ///
-    /// **Locking behavior:** Will deadlock if called from a closure passed into `get`.
+    /// **Locking behavior:** Will deadlock if called from a closure passed into `get` or `update`
+    /// on the same `key`.
     pub async fn set(&self, key: &K, value: V) -> Result<(), S::Error> {
         let mut slot_guard = self
             .items
@@ -142,7 +146,8 @@ where
     /// storage. Concurrent calls to this method are guaranteed to perform the load, update, store,
     /// and cache replacement atomically.
     ///
-    /// **Locking behavior:** Will deadlock if called from a closure passed into `get`.
+    /// **Locking behavior:** Will deadlock if called from a closure passed into `get` or `update`
+    /// on the same `key`.
     pub async fn update(
         &self,
         key: &K,
@@ -183,7 +188,8 @@ where
     /// Concurrent calls to this method with `get`, `set`, or `update` are guaranteed to leave the
     /// cache and storage in a consistent state.
     ///
-    /// **Locking behavior:** Will deadlock if called from a closure passed into `get`.
+    /// **Locking behavior:** Will deadlock if called from a closure passed into `get` or `update`
+    /// on the same `key`.
     pub async fn remove(&self, key: &K) -> Result<(), S::Error> {
         let mut slot_guard = self
             .items
