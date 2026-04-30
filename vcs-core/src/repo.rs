@@ -9,7 +9,7 @@ use crate::diff::repo_diff::RepoDiff;
 use crate::repo::repo_storage::RepoStorage;
 use crate::revision::{Revision, RevisionHeader, RevisionId, RevisionMetadata};
 use crate::storage::cache::MutableCache;
-use crate::storage::{StorageError, StorageResult, cache::FrozenCache};
+use crate::storage::{StorageError, cache::FrozenCache};
 use std::error::Error;
 use std::hash::Hash;
 use std::sync::Arc;
@@ -50,11 +50,13 @@ pub enum RepoError<E> {
     StorageError(E),
 }
 
-fn storage_expect<T, E>(result: StorageResult<T, E>) -> RepoResult<T, E> {
-    result.map_err(|err| match err {
-        StorageError::InternalError(err) => RepoError::StorageError(err),
-        StorageError::MissingObject => RepoError::MissingObject,
-    })
+impl<E> From<StorageError<E>> for RepoError<E> {
+    fn from(value: StorageError<E>) -> Self {
+        match value {
+            StorageError::InternalError(err) => RepoError::StorageError(err),
+            StorageError::MissingObject => RepoError::MissingObject,
+        }
+    }
 }
 
 impl<D: CryptoDigest + CryptoHash, S> Repo<D, S>
@@ -110,7 +112,10 @@ where
     }
 
     pub async fn head(&self) -> RepoResult<RevisionId<D>, S::RepoStorageError> {
-        storage_expect(self.head.get(&(), async |v| v.clone()).await)
+        self.head
+            .get(&(), async |v| v.clone())
+            .await
+            .map_err(|e| e.into())
     }
 
     pub async fn set_head(
@@ -164,15 +169,20 @@ where
         &self,
         revision_id: RevisionId<D>,
     ) -> RepoResult<RevisionHeader<D>, S::RepoStorageError> {
-        // clone rev header
-        todo!()
+        self.revision_headers
+            .get(&revision_id, async |header| header.clone())
+            .await
+            .map_err(|e| e.into())
     }
 
     pub async fn get_revision_metadata(
         &self,
         revision_id: RevisionId<D>,
     ) -> RepoResult<RevisionMetadata<D>, S::RepoStorageError> {
-        todo!()
+        self.revision_metadatas
+            .get(&revision_id, async |metadata| metadata.clone())
+            .await
+            .map_err(|e| e.into())
     }
 
     pub async fn insert_revision(
