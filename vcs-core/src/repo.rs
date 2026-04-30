@@ -215,9 +215,26 @@ where
         &self,
         revision: Revision<D>,
     ) -> RepoResult<(), S::RepoStorageError> {
-        // check that parent exists
-        // if `revision` is committed, check that parent is committed
-        todo!()
+        let header = revision.header();
+
+        // Verify parent exists in storage
+        self.revision_headers
+            .get(&header.parent, async |_| ())
+            .await?;
+
+        // Verify repo diff exists in storage
+        self.repo_diffs.get(&header.repo_diff).await?;
+
+        // TODO: Check that `header.repo_diff` applies cleanly to `header.parent`.
+
+        let revision_id = revision.to_digest();
+        let (header, metadata) = revision.into_parts();
+        tokio::try_join!(
+            self.revision_headers.set(&revision_id, header),
+            self.revision_metadatas.set(&revision_id, metadata),
+        )?;
+
+        Ok(())
     }
 }
 
