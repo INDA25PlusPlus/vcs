@@ -134,11 +134,11 @@ where
 
     pub async fn pending_changes_at(
         &self,
-        revision_id: RevisionId<D>,
+        revision_id: &RevisionId<D>,
     ) -> RepoResult<PendingChanges<D>, S::RepoStorageError> {
         let pending_changes = self
             .pending_changes
-            .get(&revision_id, async |changes| changes.clone())
+            .get(revision_id, async |changes| changes.clone())
             .await?;
 
         Ok(pending_changes)
@@ -146,11 +146,11 @@ where
 
     pub async fn set_pending_changes_at(
         &self,
-        revision_id: RevisionId<D>,
+        revision_id: &RevisionId<D>,
         diff: RepoDiff<D>,
     ) -> RepoResult<(), S::RepoStorageError> {
         self.pending_changes
-            .set(&revision_id, PendingChanges(diff))
+            .set(revision_id, PendingChanges(diff))
             .await?;
 
         Ok(())
@@ -158,11 +158,11 @@ where
 
     pub async fn staged_changes_at(
         &self,
-        revision_id: RevisionId<D>,
+        revision_id: &RevisionId<D>,
     ) -> RepoResult<StagedChanges<D>, S::RepoStorageError> {
         let staged_changes = self
             .staged_changes
-            .get(&revision_id, async |changes| changes.clone())
+            .get(revision_id, async |changes| changes.clone())
             .await?;
 
         Ok(staged_changes)
@@ -170,11 +170,11 @@ where
 
     pub async fn set_staged_changes_at(
         &self,
-        revision_id: RevisionId<D>,
+        revision_id: &RevisionId<D>,
         diff: RepoDiff<D>,
     ) -> RepoResult<(), S::RepoStorageError> {
         self.staged_changes
-            .set(&revision_id, StagedChanges(diff))
+            .set(revision_id, StagedChanges(diff))
             .await?;
 
         Ok(())
@@ -189,11 +189,11 @@ where
 
     pub async fn get_revision_header(
         &self,
-        revision_id: RevisionId<D>,
+        revision_id: &RevisionId<D>,
     ) -> RepoResult<RevisionHeader<D>, S::RepoStorageError> {
         let header = self
             .revision_headers
-            .get(&revision_id, async |header| header.clone())
+            .get(revision_id, async |header| header.clone())
             .await?;
 
         Ok(header)
@@ -201,11 +201,11 @@ where
 
     pub async fn get_revision_metadata(
         &self,
-        revision_id: RevisionId<D>,
+        revision_id: &RevisionId<D>,
     ) -> RepoResult<RevisionMetadata<D>, S::RepoStorageError> {
         let metadata = self
             .revision_metadatas
-            .get(&revision_id, async |metadata| metadata.clone())
+            .get(revision_id, async |metadata| metadata.clone())
             .await?;
 
         Ok(metadata)
