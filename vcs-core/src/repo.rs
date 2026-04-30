@@ -229,6 +229,9 @@ where
 
         let revision_id = revision.to_digest();
         let (header, metadata) = revision.into_parts();
+
+        // TODO: Make revision insertion atomic so storage cannot retain only one of these parts.
+        // If one fails it can cause storage to be out of sync
         tokio::try_join!(
             self.revision_headers.set(&revision_id, header),
             self.revision_metadatas.set(&revision_id, metadata),
