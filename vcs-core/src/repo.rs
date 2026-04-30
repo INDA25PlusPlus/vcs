@@ -31,8 +31,8 @@ where
     revision_headers: MutableCache<RevisionId<D>, RevisionHeader<D>, S>,
     revision_metadatas: MutableCache<RevisionId<D>, RevisionMetadata<D>, S>,
 
-    pending_changes: MutableCache<RevisionId<D>, RepoDiff<D>, S>,
-    staged_changes: MutableCache<RevisionId<D>, RepoDiff<D>, S>,
+    pending_changes: MutableCache<RevisionId<D>, PendingChanges<D>, S>,
+    staged_changes: MutableCache<RevisionId<D>, StagedChanges<D>, S>,
 
     repo_diffs: FrozenCache<D, RepoDiff<D>, S>,
     file_diffs: FrozenCache<D, FileDiff, S>,
@@ -56,6 +56,12 @@ impl<E> From<StorageError<E>> for RepoError<E> {
             StorageError::InternalError(err) => RepoError::StorageError(err),
             StorageError::MissingObject => RepoError::MissingObject,
         }
+    }
+}
+
+impl<E> From<E> for RepoError<E> {
+    fn from(value: E) -> Self {
+        RepoError::StorageError(value)
     }
 }
 
@@ -84,7 +90,7 @@ where
             revision_headers.set(&init_rev_digest, init_rev_header),
             revision_metadatas.set(&init_rev_digest, init_rev_meta),
         );
-        result.map_err(RepoError::StorageError)?;
+        result?;
 
         Ok(Repo {
             head,
@@ -112,27 +118,30 @@ where
     }
 
     pub async fn head(&self) -> RepoResult<RevisionId<D>, S::RepoStorageError> {
-        self.head
-            .get(&(), async |v| v.clone())
-            .await
-            .map_err(|e| e.into())
+        let head = self.head.get(&(), async |v| v.clone()).await?;
+
+        Ok(head)
     }
 
     pub async fn set_head(
         &self,
         revision_id: RevisionId<D>,
     ) -> RepoResult<(), S::RepoStorageError> {
-        self.head
-            .set(&(), revision_id)
-            .await
-            .map_err(RepoError::StorageError)
+        self.head.set(&(), revision_id).await?;
+
+        Ok(())
     }
 
     pub async fn pending_changes_at(
         &self,
         revision_id: RevisionId<D>,
-    ) -> RepoResult<(), S::RepoStorageError> {
-        todo!("load from disk to working tree at `rev`")
+    ) -> RepoResult<PendingChanges<D>, S::RepoStorageError> {
+        let pending_changes = self
+            .pending_changes
+            .get(&revision_id, async |changes| changes.clone())
+            .await?;
+
+        Ok(pending_changes)
     }
 
     pub async fn set_pending_changes_at(
@@ -140,14 +149,23 @@ where
         revision_id: RevisionId<D>,
         diff: RepoDiff<D>,
     ) -> RepoResult<(), S::RepoStorageError> {
-        todo!("store working tree at `rev` to disk")
+        self.pending_changes
+            .set(&revision_id, PendingChanges(diff))
+            .await?;
+
+        Ok(())
     }
 
     pub async fn staged_changes_at(
         &self,
         revision_id: RevisionId<D>,
-    ) -> RepoResult<RepoDiff<D>, S::RepoStorageError> {
-        todo!("get diff from Head at `rev` to index at `rev`")
+    ) -> RepoResult<StagedChanges<D>, S::RepoStorageError> {
+        let staged_changes = self
+            .staged_changes
+            .get(&revision_id, async |changes| changes.clone())
+            .await?;
+
+        Ok(staged_changes)
     }
 
     pub async fn set_staged_changes_at(
@@ -155,7 +173,11 @@ where
         revision_id: RevisionId<D>,
         diff: RepoDiff<D>,
     ) -> RepoResult<(), S::RepoStorageError> {
-        todo!("apply diff to index at `rev`")
+        self.staged_changes
+            .set(&revision_id, StagedChanges(diff))
+            .await?;
+
+        Ok(())
     }
 
     // pub async fn get_diff(
@@ -169,20 +191,24 @@ where
         &self,
         revision_id: RevisionId<D>,
     ) -> RepoResult<RevisionHeader<D>, S::RepoStorageError> {
-        self.revision_headers
+        let header = self
+            .revision_headers
             .get(&revision_id, async |header| header.clone())
-            .await
-            .map_err(|e| e.into())
+            .await?;
+
+        Ok(header)
     }
 
     pub async fn get_revision_metadata(
         &self,
         revision_id: RevisionId<D>,
     ) -> RepoResult<RevisionMetadata<D>, S::RepoStorageError> {
-        self.revision_metadatas
+        let metadata = self
+            .revision_metadatas
             .get(&revision_id, async |metadata| metadata.clone())
-            .await
-            .map_err(|e| e.into())
+            .await?;
+
+        Ok(metadata)
     }
 
     pub async fn insert_revision(
