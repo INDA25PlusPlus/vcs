@@ -75,8 +75,11 @@ where
         storage: Arc<S>,
         sign_context: SignContext<'_>,
     ) -> RepoResult<Repo<D, S>, S::RepoStorageError> {
-        // todo: store repo diff
-        let init_rev = Revision::new_initial(sign_context);
+        let init_rev: Revision<D> = Revision::new_initial(sign_context);
+        // UGLY: This duplicates the empty diff created by `Revision::new_initial`.
+        // The two must hash identically so the stored diff matches the initial revision header.
+        let init_repo_diff = RepoDiff::<D>::empty();
+        let init_repo_diff_ref = init_rev.header().repo_diff.clone();
         let init_rev_digest: D = init_rev.to_digest();
 
         let (init_rev_header, init_rev_meta) = init_rev.into_parts();
@@ -84,11 +87,13 @@ where
         let head = MutableCache::new(storage.clone());
         let revision_headers = MutableCache::new(storage.clone());
         let revision_metadatas = MutableCache::new(storage.clone());
+        let repo_diffs = FrozenCache::new(storage.clone());
 
         let result: Result<_, S::RepoStorageError> = tokio::try_join!(
             head.set(&(), init_rev_digest.clone()),
             revision_headers.set(&init_rev_digest, init_rev_header),
             revision_metadatas.set(&init_rev_digest, init_rev_meta),
+            repo_diffs.insert(&init_repo_diff_ref, init_repo_diff),
         );
         result?;
 
@@ -98,7 +103,7 @@ where
             revision_metadatas,
             pending_changes: MutableCache::new(storage.clone()),
             staged_changes: MutableCache::new(storage.clone()),
-            repo_diffs: FrozenCache::new(storage.clone()),
+            repo_diffs,
             file_diffs: FrozenCache::new(storage.clone()),
             storage,
         })
