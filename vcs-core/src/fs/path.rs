@@ -74,7 +74,7 @@ impl TryFrom<&RepoPath> for PathBuf {
         {
             for comp in &value.components {
                 let utf8_str = str::from_utf8(&comp.inner).map_err(|_| RepoPathError)?;
-                path.push(&OsStr::new(utf8_str));
+                path.push(OsStr::new(utf8_str));
             }
         }
 
@@ -202,7 +202,6 @@ mod tests {
             ("test", Some(&["test"])),
             ("test\0", None),
             ("test/path", Some(&["test", "path"])),
-            (r"test\path", Some(&["test\\path"])),
             ("/test/path", None),
             ("test/path/", Some(&["test", "path"])),
             ("test//path", Some(&["test", "path"])),
@@ -221,5 +220,32 @@ mod tests {
             // > 4096 characters total
             (&format!("test/{}path", comp_count_16), None),
         ]);
+    }
+
+    #[cfg(unix)]
+    mod unix {
+        use super::*;
+
+        #[test]
+        fn conversions() {
+            assert_conversions(&[(r"test\path", Some(&["test\\path"]))]);
+        }
+    }
+
+    #[cfg(windows)]
+    mod windows {
+        use super::*;
+
+        #[test]
+        fn conversions() {
+            assert_conversions(&[
+                (r"C:\", None),
+                (r"C:/", None),
+                (r"C:\test\path", None),
+                (r"C:/test/path", None),
+                (r"\", None),
+                (r"test\path", Some(&["test", "path"])),
+            ]);
+        }
     }
 }
