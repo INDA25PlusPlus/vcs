@@ -26,6 +26,7 @@ pub struct RepoPathComponent {
 }
 
 /// Error resulting from a failed `RepoPath` conversion.
+#[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
 pub struct RepoPathError;
 
 impl RepoPath {
@@ -134,5 +135,91 @@ impl TryFrom<&Path> for RepoPath {
 
 #[cfg(test)]
 mod tests {
-    // todo: unit tests
+    use super::*;
+    use std::iter;
+    use std::ops::Deref;
+    use std::path::PathBuf;
+
+    fn assert_conversion(path: impl Into<PathBuf>, expected_components: Option<&[&str]>) {
+        let path = path.into();
+        let Ok(repo_path) = RepoPath::try_from(path.as_path()) else {
+            assert!(
+                expected_components.is_none(),
+                "expected conversion from `PathBuf` to succeed: {:?}",
+                path
+            );
+            return;
+        };
+        let expected_components = expected_components
+            .unwrap_or_else(|| panic!("did not expect conversion to succeed: {:?}", path));
+        assert_eq!(
+            repo_path.components.len(),
+            expected_components.len(),
+            "unexpected number of components: {:?}, {:?}",
+            path,
+            repo_path
+        );
+        for (actual, expected) in repo_path.components.iter().zip(expected_components) {
+            assert_eq!(
+                actual.inner.deref(),
+                expected.as_bytes(),
+                "actual path component does not match the expected value"
+            );
+        }
+        let converted_back = PathBuf::try_from(&repo_path).unwrap_or_else(|_| {
+            panic!("expected conversion from `RepoPath` to succeed: {:?}", path)
+        });
+        assert_eq!(
+            path, converted_back,
+            "path should be the same after being converted to/from repo path"
+        );
+    }
+
+    fn assert_conversions<P>(tests: &[(P, Option<&[&str]>)])
+    where
+        for<'a> &'a P: Into<PathBuf>,
+    {
+        tests
+            .iter()
+            .for_each(|(path, expected_components)| assert_conversion(path, *expected_components));
+    }
+
+    #[test]
+    fn conversions() {
+        let comp_len_255 = "a".repeat(255);
+        let comp_len_256 = "a".repeat(256);
+        let comp_count_15 = format!("{}/", comp_len_255).repeat(15);
+        let comp_count_16 = format!("{}/", comp_len_255).repeat(16);
+        let comp_count_15_expected: Vec<_> = iter::once("test")
+            .chain(iter::repeat_n(comp_len_255.as_str(), 15))
+            .chain(iter::once("path"))
+            .collect();
+        assert_conversions(&[
+            ("", Some(&[])),
+            (".", None),
+            ("..", None),
+            ("/", None),
+            ("test", Some(&["test"])),
+            ("test\0", None),
+            ("test/path", Some(&["test", "path"])),
+            (r"test\path", Some(&["test\\path"])),
+            ("/test/path", None),
+            ("test/path/", Some(&["test", "path"])),
+            ("test//path", Some(&["test", "path"])),
+            ("test/./path", Some(&["test", "path"])),
+            ("test/../path", None),
+            (
+                &format!("test/{}/path", comp_len_255),
+                Some(&["test", &comp_len_255, "path"]),
+            ),
+            (&format!("test/{}/path", comp_len_256), None),
+            // < 4096 characters total
+            (
+                &format!("test/{}path", comp_count_15),
+                Some(&comp_count_15_expected),
+            ),
+            // > 4096 characters total
+            (&format!("test/{}path", comp_count_16), None),
+        ]);
+    }
 }
