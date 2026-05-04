@@ -3,7 +3,7 @@
 //! This module has three roles:
 //!
 //! - [`diff_policy::DiffPolicy`] turns raw source and destination bytes into an initial [`hunk_collection::HunkCollection`].
-//! - [`file_diff::FileDiff`] and [`hunk::Hunk`] are the standard stored representation of the differences between two files.
+//! - [`file::FileDiff`] and [`hunk::Hunk`] are the standard stored representation of the differences between two files.
 //! - [`operations`] is the lazy intermediate representation used for transformations such as
 //!   sequential composition and periodic compaction.
 //!
@@ -15,12 +15,11 @@
 //! 4. Materialize the final compacted stream back into a [`hunk_collection::HunkCollection`] with
 //!    [`operations::compact::Compact::into_hunk_collection`].
 //!
-//! [`file_diff::FileDiff`] is the value type that should be stored, hashed, and exposed in the higher-level
-//! API. The op-stream layer is the advanced representation used while transforming diffs. [`file_diff::FileDiff`]
+//! [`file::FileDiff`] is the value type that should be stored, hashed, and exposed in the higher-level
+//! API. The op-stream layer is the advanced representation used while transforming diffs. [`file::FileDiff`]
 //! represents a [`hunk_collection::HunkCollection`] + state change.
 
 pub mod diff_policy;
-pub mod file_diff;
 pub mod hunk;
 pub mod hunk_collection;
 pub mod operations;

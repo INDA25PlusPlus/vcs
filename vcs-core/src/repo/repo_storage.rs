@@ -1,6 +1,6 @@
 use crate::crypto::digest::{CryptoDigest, CryptoHash};
-use crate::diff::file_diff::{FileDiff, FileDiffRef};
 use crate::diff::repo_diff::{RepoDiff, RepoDiffRef};
+use crate::fs::file::{FileDiff, FileDiffRef};
 use crate::repo::{PendingChanges, StagedChanges};
 use crate::revision::{RevisionHeader, RevisionId, RevisionMetadata};
 use crate::storage::Storage;

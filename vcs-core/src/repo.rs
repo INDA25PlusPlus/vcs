@@ -4,8 +4,8 @@ use crypto_hash_derive::CryptoHash;
 
 use crate::crypto::digest::{CryptoDigest, CryptoHash};
 use crate::crypto::signature::SignContext;
-use crate::diff::file_diff::FileDiff;
 use crate::diff::repo_diff::RepoDiff;
+use crate::fs::file::FileDiff;
 use crate::repo::repo_storage::RepoStorage;
 use crate::revision::{Revision, RevisionHeader, RevisionId, RevisionMetadata};
 use crate::storage::cache::MutableCache;
