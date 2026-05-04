@@ -272,7 +272,7 @@ mod impls {
     impl<T: CryptoHash + ?Sized> CryptoHash for Box<T> {
         #[inline]
         fn crypto_hash<D: CryptoDigest, H: CryptoHasher<Output = D>>(&self, state: &mut H) {
-            CryptoHash::crypto_hash(&self, state);
+            CryptoHash::crypto_hash(self.deref(), state);
         }
     }
 
@@ -293,14 +293,14 @@ mod impls {
     impl<T: CryptoHash + ?Sized> CryptoHash for Rc<T> {
         #[inline]
         fn crypto_hash<D: CryptoDigest, H: CryptoHasher<Output = D>>(&self, state: &mut H) {
-            CryptoHash::crypto_hash(&self, state);
+            CryptoHash::crypto_hash(self.deref(), state);
         }
     }
 
     impl<T: CryptoHash + ?Sized> CryptoHash for Arc<T> {
         #[inline]
         fn crypto_hash<D: CryptoDigest, H: CryptoHasher<Output = D>>(&self, state: &mut H) {
-            CryptoHash::crypto_hash(&self, state);
+            CryptoHash::crypto_hash(self.deref(), state);
         }
     }
 
