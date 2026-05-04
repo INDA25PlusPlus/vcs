@@ -82,6 +82,20 @@ impl TryFrom<&RepoPath> for PathBuf {
     }
 }
 
+impl TryFrom<&[u8]> for RepoPathComponent {
+    type Error = RepoPathError;
+
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+        let has_invalid_chars = value.iter().any(|b| *b == b'\0' || *b == b'/');
+        if !(1usize..=255).contains(&value.len()) || has_invalid_chars {
+            return Err(RepoPathError);
+        }
+        Ok(RepoPathComponent {
+            inner: value.into(),
+        })
+    }
+}
+
 impl TryFrom<&Path> for RepoPath {
     type Error = RepoPathError;
 
@@ -110,13 +124,7 @@ impl TryFrom<&Path> for RepoPath {
                     // plus path separator before component
                     total_len += len + 1;
 
-                    let has_invalid_chars = bytes.iter().any(|b| *b == b'\0' || *b == b'/');
-                    if !(1usize..=255).contains(&bytes.len()) || has_invalid_chars {
-                        return Err(RepoPathError);
-                    }
-                    components.push(RepoPathComponent {
-                        inner: bytes.into(),
-                    });
+                    components.push(bytes.try_into()?);
                 }
                 _ => return Err(RepoPathError),
             }
@@ -130,6 +138,31 @@ impl TryFrom<&Path> for RepoPath {
         Ok(RepoPath {
             components: components.into_boxed_slice(),
         })
+    }
+}
+
+impl TryFrom<&[u8]> for RepoPath {
+    type Error = RepoPathError;
+
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+        if value.len() > 4096 {
+            return Err(RepoPathError);
+        }
+        let components: Result<Box<_>, _> = value
+            .split(|b| *b == b'/')
+            .map(RepoPathComponent::try_from)
+            .collect();
+        Ok(RepoPath {
+            components: components?,
+        })
+    }
+}
+
+impl TryFrom<&str> for RepoPath {
+    type Error = RepoPathError;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        RepoPath::try_from(value.as_bytes())
     }
 }
 
@@ -220,6 +253,23 @@ mod tests {
             // > 4096 characters total
             (&format!("test/{}path", comp_count_16), None),
         ]);
+    }
+
+    #[test]
+    fn from_bytes() {
+        fn assert_from_bytes(bytes: &[u8], should_succeed: bool) {
+            assert_eq!(
+                RepoPath::try_from(bytes).is_ok(),
+                should_succeed,
+                "unexpected result when converting '{}' to `RepoPath`",
+                String::from_utf8_lossy(bytes)
+            );
+        }
+        assert_from_bytes(b"test/path", true);
+        assert_from_bytes(br"test\path", true);
+        assert_from_bytes(b"test\0/path", false);
+        assert_from_bytes(b"test//path", false);
+        assert_from_bytes(b"", false);
     }
 
     #[cfg(unix)]
