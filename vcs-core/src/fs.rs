@@ -1,23 +1,20 @@
+pub mod file;
 pub mod path;
 
+use crate::crypto::digest::{CryptoDigest, CryptoHash};
 use crate::diff::repo_diff::RepoDiff;
+use crate::fs::file::FileRef;
 use crate::repo::PendingChanges;
-use crate::{
-    crypto::digest::{CryptoDigest, CryptoHash},
-    repo::repo_storage::RepoStorage,
-};
+use crate::repo::repo_storage::RepoStorage;
+use file::File;
 use path::RepoPath;
+use std::collections::HashMap;
 use std::error::Error;
 use std::{future::Future, hash::Hash};
 
-pub struct File {
-    content: Box<[u8]>,
-    executable: bool,
-}
-
-pub struct FileTree<D: CryptoDigest> {
+pub struct FileTree<D> {
     // todo lazy loading from aggregate repo diffs
-    diff: RepoDiff<D>,
+    files: HashMap<RepoPath, FileRef<D>>,
 }
 
 pub trait FileSystem<D: CryptoDigest + CryptoHash, S>
