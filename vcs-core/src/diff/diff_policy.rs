@@ -13,7 +13,7 @@ impl DiffPolicy for NaiveDiff {
         let src_len = src_buf.len();
         let hunks = Box::new([Hunk {
             offset: 0,
-            len_before: src_len,
+            len_before: src_len.try_into().expect("src_len should fit into u64"),
             content_after: Box::from(dst_buf),
         }]);
 
@@ -49,7 +49,7 @@ mod tests {
             let diff = differ.diff(src, dst);
             assert!(!diff.hunks.is_empty());
             assert_eq!(diff.hunks[0].offset, 0);
-            assert_eq!(diff.hunks[0].len_before, src.len());
+            assert_eq!(diff.hunks[0].len_before, src.len().try_into().unwrap());
             assert_eq!(*diff.hunks[0].content_after, *dst);
         }
     }

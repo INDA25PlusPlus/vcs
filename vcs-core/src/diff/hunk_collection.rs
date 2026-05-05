@@ -1,17 +1,17 @@
 use std::collections::VecDeque;
 
-use bytes::Bytes;
-
 use crate::diff::{
     hunk::Hunk,
     operations::{Op, OpStreamExt, compact::Compact},
 };
+use bytes::Bytes;
+use crypto_hash_derive::CryptoHash;
 
 /// Stored diff for a single file.
 ///
 /// `HunkCollection` stores edits as hunks. This is the representation that should usually be persisted,
 /// hashed, and passed through the higher-level API.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, CryptoHash)]
 pub struct HunkCollection {
     pub hunks: Box<[Hunk]>,
 }
@@ -71,11 +71,14 @@ impl<I: Iterator<Item = Op>> Compact<I> {
                 // the next offset base starts with this hunk's deleted length.
                 let next_offset = *delete_len;
                 hunks.push(Hunk {
-                    offset: std::mem::take(offset),
-                    len_before: std::mem::take(delete_len),
+                    offset: (*offset).try_into().expect("offset should fit into u64"),
+                    len_before: (*delete_len)
+                        .try_into()
+                        .expect("delete_len should fit into u64"),
                     content_after: std::mem::take(insert_bytes).into_boxed_slice(),
                 });
                 *offset = next_offset;
+                *delete_len = 0;
             };
 
         for op in self {
@@ -127,20 +130,33 @@ impl<I: Iterator<Item = Hunk>> Iterator for HunkOpStream<I> {
 
         // Hunk offsets are stored relative to the previous hunk, while keep lengths are measured
         // against the source stream. Subtract the previous deletion span to recover the keep run.
-        let keep_len = hunk.offset.saturating_sub(self.previous_deleted_len);
+        let keep_len = hunk.offset.saturating_sub(
+            self.previous_deleted_len
+                .try_into()
+                .expect("previous_deleted_len should fit into u64"),
+        );
 
         if keep_len > 0 {
-            self.pending_ops.push_back(Op::Keep(keep_len));
+            self.pending_ops.push_back(Op::Keep(
+                keep_len.try_into().expect("keep_len should fit into u64"),
+            ));
         }
         if hunk.len_before > 0 {
-            self.pending_ops.push_back(Op::Delete(hunk.len_before));
+            self.pending_ops.push_back(Op::Delete(
+                hunk.len_before
+                    .try_into()
+                    .expect("len_before should fit into u64"),
+            ));
         }
         if !hunk.content_after.is_empty() {
             self.pending_ops
                 .push_back(Op::Insert(Bytes::from(hunk.content_after)));
         }
 
-        self.previous_deleted_len = hunk.len_before;
+        self.previous_deleted_len = hunk
+            .len_before
+            .try_into()
+            .expect("len_before should fit into u64");
 
         self.pending_ops.pop_front()
     }
