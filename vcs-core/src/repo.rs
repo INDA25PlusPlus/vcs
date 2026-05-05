@@ -4,8 +4,8 @@ use crypto_hash_derive::CryptoHash;
 
 use crate::crypto::digest::{CryptoDigest, CryptoHash};
 use crate::crypto::signature::SignContext;
-use crate::diff::file_diff::FileDiff;
 use crate::diff::repo_diff::RepoDiff;
+use crate::fs::file::FileDiff;
 use crate::repo::repo_storage::RepoStorage;
 use crate::revision::{Revision, RevisionHeader, RevisionId, RevisionMetadata};
 use crate::storage::cache::MutableCache;
@@ -15,10 +15,10 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 #[derive(Clone, CryptoHash, Debug)]
-pub struct PendingChanges<D: CryptoDigest>(pub RepoDiff<D>);
+pub struct PendingChanges<D: CryptoDigest + CryptoHash>(pub RepoDiff<D>);
 
 #[derive(Clone, CryptoHash, Debug)]
-pub struct StagedChanges<D: CryptoDigest>(pub RepoDiff<D>);
+pub struct StagedChanges<D: CryptoDigest + CryptoHash>(pub RepoDiff<D>);
 
 pub struct Repo<D: CryptoDigest + CryptoHash, S>
 where
