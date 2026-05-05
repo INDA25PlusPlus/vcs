@@ -1,4 +1,5 @@
 pub mod file;
+pub mod map_ops;
 mod memory;
 pub mod path;
 
