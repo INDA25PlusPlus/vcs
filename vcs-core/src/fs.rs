@@ -1,4 +1,5 @@
 pub mod file;
+mod memory;
 pub mod path;
 
 use crate::crypto::digest::{CryptoDigest, CryptoHash};
@@ -24,10 +25,7 @@ pub enum FileSystemError<E> {
     MissingFile,
 }
 
-pub trait FileSystem<D: CryptoDigest + CryptoHash>
-where
-    D: Hash + Eq + Send + Sync,
-{
+pub trait FileSystem<D: CryptoDigest + CryptoHash> {
     type Error;
 
     /// Read a [`File`] from the file system
