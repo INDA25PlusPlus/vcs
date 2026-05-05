@@ -15,10 +15,10 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 #[derive(Clone, CryptoHash, Debug)]
-pub struct PendingChanges<D: CryptoDigest>(pub RepoDiff<D>);
+pub struct PendingChanges<D: CryptoDigest + CryptoHash>(pub RepoDiff<D>);
 
 #[derive(Clone, CryptoHash, Debug)]
-pub struct StagedChanges<D: CryptoDigest>(pub RepoDiff<D>);
+pub struct StagedChanges<D: CryptoDigest + CryptoHash>(pub RepoDiff<D>);
 
 pub struct Repo<D: CryptoDigest + CryptoHash, S>
 where
