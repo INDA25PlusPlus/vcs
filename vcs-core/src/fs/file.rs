@@ -12,17 +12,17 @@ pub enum FileChange<D: CryptoDigest + CryptoHash> {
 }
 
 /// The full contents of a file
-#[derive(Clone)]
+#[derive(Clone, Eq, PartialEq, CryptoHash)]
 pub struct File {
-    content: Box<[u8]>,
-    executable_status: bool,
+    pub(crate) content: Box<[u8]>,
+    pub(crate) executable_status: bool,
 }
 
 /// A collection of changes made to a file
-#[derive(Clone, Debug)]
+#[derive(Clone, Eq, PartialEq, Debug, CryptoHash)]
 pub struct FileDiff {
-    hunks: HunkCollection,
-    executable_status: bool,
+    pub(crate) hunks: HunkCollection,
+    pub(crate) executable_status: bool,
 }
 
 pub type FileRef<D> = D;

@@ -4,10 +4,12 @@ mod memory;
 pub mod path;
 
 use crate::crypto::digest::{CryptoDigest, CryptoHash};
+use crate::diff::diff_policy::DiffPolicy;
 use crate::diff::repo_diff::RepoDiff;
 use crate::fs::file::{FileChange, FileRef};
 use crate::repo::PendingChanges;
-use crate::storage::Storage;
+use crate::repo::repo_storage::RepoStorage;
+use crate::storage::StorageError;
 use file::File;
 use path::RepoPath;
 use std::collections::HashMap;
@@ -21,12 +23,24 @@ pub struct FileTree<D> {
 
 pub type FileSystemResult<T, E> = Result<T, FileSystemError<E>>;
 
+pub type FileSystemStorageResult<T, E, SE> = Result<T, FileSystemStorageError<E, SE>>;
+
+#[derive(Clone, Debug, Error)]
 pub enum FileSystemError<E> {
+    #[error("internal file system error: {0}")]
     InternalError(E),
+    #[error("file does not exist")]
     MissingFile,
 }
 
-pub trait FileSystem<D: CryptoDigest + CryptoHash> {
+#[derive(Clone, Debug, Error)]
+pub enum FileSystemStorageError<FE, SE> {
+    FileSystemError(FileSystemError<FE>),
+    LoadError(StorageError<SE>),
+    StoreError(SE),
+}
+
+pub trait FileSystem<D: CryptoDigest + CryptoHash + Send> {
     type Error;
 
     /// Read a [`File`] from the file system
@@ -54,13 +68,17 @@ pub trait FileSystem<D: CryptoDigest + CryptoHash> {
     /// `head_changed`: Set to `true` if `head` may have changed since the last call to
     /// `read_pending_changes` or `write_pending_changes`. If `false`, the implementer may assume
     /// that `head` has not changed.
-    fn read_pending_changes<S: Storage<D, File>>(
+    fn read_pending_changes<P, S>(
         &self,
+        diff_policy: &P,
         storage: &S,
         head: &FileTree<D>,
         pending_changes: &mut PendingChanges<D>,
         head_changed: bool,
-    ) -> impl Future<Output = Result<(), Self::Error>>;
+    ) -> impl Future<Output = FileSystemStorageResult<(), Self::Error, S::RepoStorageError>>
+    where
+        P: DiffPolicy,
+        S: RepoStorage<D>;
 
     /// Update the file tree to match `pending_changes` applied to `head`.
     /// (files = `head` + `pending_changes`)
@@ -68,13 +86,17 @@ pub trait FileSystem<D: CryptoDigest + CryptoHash> {
     /// `head_changed`: Set to `true` if `head` may have changed since the last call to
     /// `read_pending_changes` or `write_pending_changes`. If `false`, the implementer may assume
     /// that `head` has not changed.
-    fn write_pending_changes<S: Storage<D, File>>(
+    fn write_pending_changes<P, S>(
         &self,
+        diff_policy: &P,
         storage: &S,
         head: &FileTree<D>,
         pending_changes: &PendingChanges<D>,
         head_changed: bool,
-    ) -> impl Future<Output = Result<(), Self::Error>>;
+    ) -> impl Future<Output = FileSystemStorageResult<(), Self::Error, S::RepoStorageError>>
+    where
+        P: DiffPolicy,
+        S: RepoStorage<D>;
 }
 
 #[derive(Clone, Copy, Debug, Error)]
@@ -96,5 +118,17 @@ impl<D: CryptoDigest + CryptoHash + Eq + Hash> TryFrom<RepoDiff<D>> for FileTree
             })
             .collect::<Result<HashMap<_, _>, _>>()
             .map(|files| FileTree { files })
+    }
+}
+
+impl<E> From<E> for FileSystemError<E> {
+    fn from(value: E) -> Self {
+        FileSystemError::InternalError(value)
+    }
+}
+
+impl<FE, SE> From<FileSystemError<FE>> for FileSystemStorageError<FE, SE> {
+    fn from(value: FileSystemError<FE>) -> Self {
+        FileSystemStorageError::FileSystemError(value)
     }
 }

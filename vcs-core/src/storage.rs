@@ -1,9 +1,11 @@
+use thiserror::Error;
+
 pub mod cache;
 mod slotmap;
 
 pub type StorageResult<T, E> = Result<T, StorageError<E>>;
 
-#[derive(thiserror::Error, Debug)]
+#[derive(Clone, Debug, Error)]
 pub enum StorageError<E> {
     #[error("internal storage error: {0}")]
     InternalError(E),
