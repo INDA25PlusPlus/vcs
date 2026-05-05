@@ -4,11 +4,17 @@ use crate::fs::path::RepoPath;
 use crate::fs::{FileSystem, FileSystemError, FileSystemResult, FileTree};
 use crate::repo::PendingChanges;
 use crate::storage::Storage;
-use dashmap::DashMap;
+use std::collections::HashMap;
 use std::convert::Infallible;
+use tokio::sync::RwLock;
 
 pub struct MemoryFileStorage {
-    files: DashMap<RepoPath, File>,
+    files: RwLock<HashMap<RepoPath, MemoryFileStorageEntry>>,
+}
+
+struct MemoryFileStorageEntry {
+    file: File,
+    dirty: bool,
 }
 
 impl<D: CryptoDigest + CryptoHash> FileSystem<D> for MemoryFileStorage {
@@ -16,18 +22,28 @@ impl<D: CryptoDigest + CryptoHash> FileSystem<D> for MemoryFileStorage {
 
     async fn read(&self, path: &RepoPath) -> FileSystemResult<File, Self::Error> {
         self.files
+            .read()
+            .await
             .get(path)
-            .map(|file| file.clone())
+            .map(|entry| entry.file.clone())
             .ok_or(FileSystemError::MissingFile)
     }
 
     async fn write(&self, path: &RepoPath, file: &File) -> Result<(), Self::Error> {
-        self.files.insert(path.clone(), file.clone());
+        self.files.write().await.insert(
+            path.clone(),
+            MemoryFileStorageEntry {
+                file: file.clone(),
+                dirty: true,
+            },
+        );
         Ok(())
     }
 
     async fn delete(&self, path: &RepoPath) -> FileSystemResult<(), Self::Error> {
         self.files
+            .write()
+            .await
             .remove(path)
             .ok_or(FileSystemError::MissingFile)?;
         Ok(())
