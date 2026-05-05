@@ -1,18 +1,17 @@
-use std::collections::HashMap;
-
 use crate::crypto::digest::{CryptoDigest, CryptoHash, CryptoHasher};
 use crate::fs::file::FileChange;
 use crate::fs::path::RepoPath;
+use std::collections::HashMap;
 
 /// A collection of changes made to a repository from one revision to another
 #[derive(Clone, Debug)]
-pub struct RepoDiff<D: CryptoDigest> {
+pub struct RepoDiff<D: CryptoDigest + CryptoHash> {
     file_diffs: HashMap<RepoPath, FileChange<D>>,
 }
 
 pub type RepoDiffRef<D> = D;
 
-impl<D: CryptoDigest> RepoDiff<D> {
+impl<D: CryptoDigest + CryptoHash> RepoDiff<D> {
     pub(crate) fn empty() -> RepoDiff<D> {
         RepoDiff {
             file_diffs: HashMap::new(),
@@ -20,8 +19,141 @@ impl<D: CryptoDigest> RepoDiff<D> {
     }
 }
 
-impl<D: CryptoDigest> CryptoHash for RepoDiff<D> {
+impl<D: CryptoDigest + CryptoHash> CryptoHash for RepoDiff<D> {
     fn crypto_hash<OutD: CryptoDigest, H: CryptoHasher<Output = OutD>>(&self, state: &mut H) {
-        todo!()
+        // sort is required for the hash to be deterministic
+        let mut entries: Vec<_> = self.file_diffs.iter().collect();
+        entries.sort_by_key(|(path, _)| *path);
+        CryptoHash::crypto_hash_slice(&entries, state);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::diff::repo_diff::CryptoDigest;
+    use crate::diff::repo_diff::RepoDiff;
+    use crate::fs::file::FileChange;
+    use crate::fs::path::RepoPath;
+    use std::collections::HashMap;
+
+    #[test]
+    fn repo_diff_crypto_hash() {
+        fn assert_digest(files: &[(&str, &[u8])], digest: &[u8]) {
+            let expected = blake3::Hash::from_slice(digest).unwrap();
+            let mut file_diffs = HashMap::new();
+            for (path, file_digest) in files {
+                file_diffs.insert(
+                    RepoPath::try_from(*path).unwrap(),
+                    FileChange::Create(blake3::Hash::from_slice(file_digest).unwrap()),
+                );
+            }
+            let repo_diff = RepoDiff { file_diffs };
+            let actual = <blake3::Hash as CryptoDigest>::generate(&repo_diff);
+            assert_eq!(actual, expected,);
+        }
+
+        let file_1a: (&str, &[u8]) = (
+            "src/main.rs",
+            &[
+                0x36, 0xc8, 0x4f, 0x0e, 0x14, 0xd0, 0xe8, 0x4a, 0x8f, 0xf4, 0xc5, 0xe2, 0x60, 0xab,
+                0x9a, 0xc0, 0x68, 0xe0, 0x27, 0x4f, 0x34, 0xb6, 0x76, 0x7f, 0xea, 0x71, 0x18, 0xe5,
+                0x3f, 0x1b, 0x4b, 0xba,
+            ],
+        );
+        let file_1b: (&str, &[u8]) = (
+            "src/main.rs",
+            &[
+                0x37, 0xc8, 0x4f, 0x0e, 0x14, 0xd0, 0xe8, 0x4a, 0x8f, 0xf4, 0xc5, 0xe2, 0x60, 0xab,
+                0x9a, 0xc0, 0x68, 0xe0, 0x27, 0x4f, 0x34, 0xb6, 0x76, 0x7f, 0xea, 0x71, 0x18, 0xe5,
+                0x3f, 0x1b, 0x4b, 0xba,
+            ],
+        );
+        let file_2: (&str, &[u8]) = (
+            "src/tests.rs",
+            &[
+                0xaa, 0x23, 0x85, 0xdb, 0xa8, 0x4d, 0xe9, 0x6b, 0x93, 0x74, 0x16, 0xc1, 0x2a, 0x14,
+                0xd9, 0x90, 0xbf, 0x1a, 0xf4, 0xf7, 0x87, 0xf2, 0x52, 0x77, 0x94, 0xb0, 0x91, 0xb1,
+                0xec, 0x52, 0xc4, 0xe3,
+            ],
+        );
+        let file_3: (&str, &[u8]) = (
+            "README.md",
+            &[
+                0x17, 0xd0, 0x1f, 0x55, 0x82, 0x86, 0x2c, 0x70, 0xfe, 0xb6, 0x76, 0x24, 0x95, 0xf1,
+                0x03, 0x9e, 0x6f, 0x5f, 0x73, 0x6c, 0x69, 0xda, 0xb5, 0x99, 0x20, 0xd8, 0xad, 0xe9,
+                0xab, 0x11, 0x80, 0xe7,
+            ],
+        );
+        let file_4: (&str, &[u8]) = (
+            "LICENSE",
+            &[
+                0xe9, 0x85, 0xd4, 0xd1, 0x42, 0xa0, 0xbf, 0x33, 0x5d, 0x93, 0xd8, 0x9f, 0xa4, 0x07,
+                0xdb, 0xe8, 0x2b, 0x08, 0xfa, 0x90, 0xc8, 0x24, 0x1d, 0x40, 0x43, 0x3f, 0x09, 0xac,
+                0x0b, 0x23, 0x1b, 0xa0,
+            ],
+        );
+
+        let digest_1a: &[u8] = &[
+            0xc1, 0x78, 0x4a, 0xa0, 0xe6, 0xad, 0xaa, 0x26, 0xcf, 0x98, 0x61, 0x9c, 0xa4, 0xeb,
+            0x29, 0xae, 0x7b, 0x35, 0x14, 0xe8, 0x8b, 0xb7, 0x88, 0x80, 0xb7, 0x2e, 0x07, 0x7c,
+            0xc4, 0x1f, 0x66, 0x7d,
+        ];
+        let digest_1b: &[u8] = &[
+            0xfd, 0x6d, 0x85, 0xf9, 0x96, 0xc2, 0xde, 0xe0, 0x4d, 0x57, 0x58, 0x93, 0xd5, 0xb4,
+            0x75, 0xd8, 0x6b, 0x0f, 0x18, 0xb8, 0x1f, 0x9b, 0x33, 0xfe, 0x13, 0xd3, 0xde, 0xd0,
+            0x74, 0x3d, 0xb3, 0x5e,
+        ];
+        let digest_1a_2: &[u8] = &[
+            0xc9, 0xb6, 0x13, 0x84, 0xcb, 0x35, 0xa7, 0x31, 0x8a, 0xf6, 0x2a, 0x99, 0x47, 0xb2,
+            0x02, 0xc1, 0x3d, 0xac, 0xa7, 0x05, 0x19, 0x5c, 0x72, 0xe1, 0x30, 0x3e, 0xfb, 0x6b,
+            0xb5, 0xee, 0x03, 0xab,
+        ];
+        let digest_1b_2: &[u8] = &[
+            0x05, 0xfa, 0x0a, 0x23, 0x83, 0xa7, 0xb8, 0x20, 0x5b, 0x0d, 0x5b, 0x03, 0xf9, 0x7c,
+            0x19, 0xa1, 0x75, 0xbf, 0x92, 0x7c, 0xef, 0x97, 0xb4, 0x11, 0xa1, 0x7b, 0x0d, 0x99,
+            0xbd, 0x4a, 0x62, 0xbf,
+        ];
+        let digest_3_4: &[u8] = &[
+            0xac, 0x16, 0x11, 0xbb, 0x93, 0x5d, 0x28, 0x45, 0x62, 0xf4, 0xb9, 0x94, 0xfe, 0xb2,
+            0x9d, 0x74, 0xe2, 0x00, 0x9b, 0xa6, 0x28, 0xb2, 0xc0, 0xe7, 0x01, 0xa9, 0x75, 0xde,
+            0xfe, 0x7d, 0xf0, 0x34,
+        ];
+        let digest_1a_2_3_4: &[u8] = &[
+            0xb3, 0x10, 0x69, 0x01, 0x71, 0x3d, 0xa3, 0xe4, 0xa3, 0xb5, 0xaa, 0x49, 0xd5, 0x10,
+            0xda, 0xc8, 0x8a, 0x2d, 0x6f, 0x13, 0xc8, 0xb0, 0x62, 0x90, 0x83, 0x07, 0x0d, 0x08,
+            0xe3, 0xbb, 0x58, 0xf2,
+        ];
+
+        // latest version of same file is applied
+        assert_digest(&[file_1a], digest_1a);
+        assert_digest(&[file_1b, file_1a], digest_1a);
+        assert_digest(&[file_1b], digest_1b);
+        assert_digest(&[file_1a, file_1b], digest_1b);
+
+        // different files give different digests
+        assert_digest(&[file_1a, file_2], digest_1a_2);
+        assert_digest(&[file_1b, file_2], digest_1b_2);
+        assert_digest(&[file_3, file_4], digest_3_4);
+
+        // different insertion orders do not affect digest
+        assert_digest(&[file_1a, file_2, file_3, file_4], digest_1a_2_3_4);
+        assert_digest(&[file_3, file_2, file_4, file_1a], digest_1a_2_3_4);
+
+        // digests are distinct
+        assert_ne!(digest_1a, digest_1b);
+        assert_ne!(digest_1a, digest_1a_2);
+        assert_ne!(digest_1a, digest_1b_2);
+        assert_ne!(digest_1a, digest_3_4);
+        assert_ne!(digest_1a, digest_1a_2_3_4);
+        assert_ne!(digest_1b, digest_1a_2);
+        assert_ne!(digest_1b, digest_1b_2);
+        assert_ne!(digest_1b, digest_3_4);
+        assert_ne!(digest_1b, digest_1a_2_3_4);
+        assert_ne!(digest_1a_2, digest_1b_2);
+        assert_ne!(digest_1a_2, digest_3_4);
+        assert_ne!(digest_1a_2, digest_1a_2_3_4);
+        assert_ne!(digest_1b_2, digest_3_4);
+        assert_ne!(digest_1b_2, digest_1a_2_3_4);
+        assert_ne!(digest_3_4, digest_1a_2_3_4);
     }
 }
