@@ -15,6 +15,17 @@ macro_rules! remove_difference {
 }
 pub(crate) use remove_difference;
 
+pub fn replace_or_insert<K, V>(map: &mut HashMap<K, V>, key: &K, value: V)
+where
+    K: Eq + Hash + Clone,
+{
+    if let Some(entry) = map.get_mut(key) {
+        *entry = value;
+    } else {
+        map.insert(key.clone(), value);
+    }
+}
+
 #[derive(Clone, Debug)]
 pub enum OuterJoinEntry<VA, VB> {
     Left(VA),

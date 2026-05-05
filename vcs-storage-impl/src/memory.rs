@@ -2,7 +2,7 @@ use std::convert::Infallible;
 use std::hash::Hash;
 use vcs_core::crypto::digest::{CryptoDigest, CryptoHash};
 use vcs_core::diff::repo_diff::{RepoDiff, RepoDiffRef};
-use vcs_core::fs::file::{FileDiff, FileDiffRef};
+use vcs_core::fs::file::{File, FileDiff, FileDiffRef, FileRef};
 use vcs_core::repo::repo_storage::RepoStorage;
 use vcs_core::repo::{PendingChanges, StagedChanges};
 use vcs_core::revision::{RevisionHeader, RevisionId, RevisionMetadata};
@@ -99,5 +99,6 @@ memory_repo_storage! {
     pending_changes: MemoryStorage<RevisionId<D>, PendingChanges<D>>,
     staged_changes: MemoryStorage<RevisionId<D>, StagedChanges<D>>,
     repo_diffs: MemoryStorage<RepoDiffRef<D>, RepoDiff<D>>,
+    files: MemoryStorage<FileRef<D>, File>,
     file_diffs: MemoryStorage<FileDiffRef<D>, FileDiff>,
 }
