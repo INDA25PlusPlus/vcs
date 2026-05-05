@@ -15,16 +15,16 @@ use std::convert::Infallible;
 use std::ops::Deref;
 use tokio::sync::RwLock;
 
-pub struct MemoryFileStorage {
-    files: RwLock<HashMap<RepoPath, MemoryFileStorageEntry>>,
+pub struct MemoryFileSystem {
+    files: RwLock<HashMap<RepoPath, MemoryFileSystemEntry>>,
 }
 
-struct MemoryFileStorageEntry {
+struct MemoryFileSystemEntry {
     file: File,
     dirty: bool,
 }
 
-impl<D: CryptoDigest + CryptoHash + Send> FileSystem<D> for MemoryFileStorage
+impl<D: CryptoDigest + CryptoHash + Send> FileSystem<D> for MemoryFileSystem
 where
     D: Eq,
 {
@@ -42,7 +42,7 @@ where
     async fn write(&self, path: &RepoPath, file: &File) -> Result<(), Self::Error> {
         self.files.write().await.insert(
             path.clone(),
-            MemoryFileStorageEntry {
+            MemoryFileSystemEntry {
                 file: file.clone(),
                 dirty: true,
             },
@@ -85,7 +85,7 @@ where
                     // => the file has been deleted
                     replace_or_insert(pending_changes, path, FileChange::Delete);
                 }
-                OuterJoinEntry::Right(MemoryFileStorageEntry { file, dirty }) => {
+                OuterJoinEntry::Right(MemoryFileSystemEntry { file, dirty }) => {
                     // file does not exist on head but does exist in file system
                     // => the file has been created
 
@@ -101,7 +101,7 @@ where
                 }
                 OuterJoinEntry::Both(
                     on_head_digest,
-                    MemoryFileStorageEntry {
+                    MemoryFileSystemEntry {
                         file: fs_file,
                         dirty,
                     },
