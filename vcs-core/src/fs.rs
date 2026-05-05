@@ -3,13 +3,14 @@ pub mod path;
 
 use crate::crypto::digest::{CryptoDigest, CryptoHash};
 use crate::diff::repo_diff::RepoDiff;
-use crate::fs::file::FileRef;
+use crate::fs::file::{FileChange, FileRef};
 use crate::repo::PendingChanges;
 use crate::storage::Storage;
 use file::File;
 use path::RepoPath;
 use std::collections::HashMap;
 use std::{future::Future, hash::Hash};
+use thiserror::Error;
 
 pub struct FileTree<D> {
     // todo lazy loading from aggregate repo diffs
@@ -77,10 +78,24 @@ where
     ) -> impl Future<Output = Result<(), Self::Error>>;
 }
 
-impl<D: CryptoDigest + CryptoHash> TryFrom<RepoDiff<D>> for FileTree<D> {
-    type Error = ();
+#[derive(Clone, Copy, Debug, Error)]
+pub enum FileTreeError {
+    #[error("invalid file change mode")]
+    InvalidFileChangeMode,
+}
+
+impl<D: CryptoDigest + CryptoHash + Eq + Hash> TryFrom<RepoDiff<D>> for FileTree<D> {
+    type Error = FileTreeError;
 
     fn try_from(value: RepoDiff<D>) -> Result<Self, Self::Error> {
-        todo!("check only file creation etc.")
+        value
+            .file_diffs
+            .into_iter()
+            .map(|(path, change)| match change {
+                FileChange::Create(file) => Ok((path, file)),
+                _ => Err(FileTreeError::InvalidFileChangeMode),
+            })
+            .collect::<Result<HashMap<_, _>, _>>()
+            .map(|files| FileTree { files })
     }
 }

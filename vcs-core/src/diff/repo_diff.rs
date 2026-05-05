@@ -6,7 +6,7 @@ use std::collections::HashMap;
 /// A collection of changes made to a repository from one revision to another
 #[derive(Clone, Debug)]
 pub struct RepoDiff<D: CryptoDigest + CryptoHash> {
-    file_diffs: HashMap<RepoPath, FileChange<D>>,
+    pub(crate) file_diffs: HashMap<RepoPath, FileChange<D>>,
 }
 
 pub type RepoDiffRef<D> = D;
