@@ -1,11 +1,11 @@
-use std::collections::VecDeque;
-
 use crate::diff::{
     hunk::Hunk,
     operations::{Op, OpStreamExt, compact::Compact},
 };
 use bytes::Bytes;
 use crypto_hash_derive::CryptoHash;
+use std::collections::VecDeque;
+use thiserror::Error;
 
 /// Stored diff for a single file.
 ///
@@ -21,6 +21,12 @@ struct HunkOpStream<I: Iterator<Item = Hunk>> {
     hunks: I,
     pending_ops: VecDeque<Op>,
     previous_deleted_len: usize,
+}
+
+#[derive(Clone, Copy, Debug, Error)]
+pub enum HunkCollectionError {
+    #[error("hunk cannot be applied to source")]
+    InvalidHunk,
 }
 
 impl HunkCollection {
@@ -48,6 +54,33 @@ impl HunkCollection {
             .compose(other.into_ops())
             .compact()
             .into_hunk_collection()
+    }
+
+    pub fn apply(&self, source: &[u8]) -> Result<Box<[u8]>, HunkCollectionError> {
+        // approximate capacity
+        let mut out = Vec::with_capacity(source.len());
+        let source_len = source.len();
+
+        let mut index = 0;
+        for hunk in &self.hunks {
+            if hunk.offset > 0 {
+                let hunk_offset: usize = hunk
+                    .offset
+                    .try_into()
+                    .expect("hunk offset should fit into usize");
+                let keep_end = index + hunk_offset;
+                if keep_end > source_len {
+                    return Err(HunkCollectionError::InvalidHunk);
+                }
+                out.extend_from_slice(&source[index..keep_end]);
+            }
+            let index_offset: usize = (hunk.offset + hunk.len_before)
+                .try_into()
+                .expect("index offset should fit into usize");
+            index += index_offset;
+            out.extend_from_slice(&hunk.content_after);
+        }
+        Ok(out.into_boxed_slice())
     }
 }
 
