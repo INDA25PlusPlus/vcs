@@ -280,11 +280,19 @@ struct Pathspecs {
 
 impl Pathspecs {
     fn stage_message(&self) -> &'static str {
-        "staging paths is not implemented yet"
+        if self.paths.len() == 1 {
+            "staging this path is not implemented yet"
+        } else {
+            "staging these paths is not implemented yet"
+        }
     }
 
     fn unstage_message(&self) -> &'static str {
-        "unstaging paths is not implemented yet"
+        if self.paths.len() == 1 {
+            "unstaging this path is not implemented yet"
+        } else {
+            "unstaging these paths is not implemented yet"
+        }
     }
 }
 

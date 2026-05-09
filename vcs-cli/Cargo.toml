@@ -3,6 +3,10 @@ name = "vcs-cli"
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = "vcs"
+path = "src/main.rs"
+
 [dependencies]
 aws-lc-rs = "1.16.2"
 blake3 = "1.8.3"
