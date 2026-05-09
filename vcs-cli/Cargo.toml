@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+aws-lc-rs = "1.16.2"
+blake3 = "1.8.3"
 clap = { version = "4.6.1", features = ["derive"] }
 tokio = { version = "1.52.1", features = ["macros", "rt"] }
 vcs-core = { path = "../vcs-core" }
+vcs-storage-impl = { path = "../vcs-storage-impl" }
