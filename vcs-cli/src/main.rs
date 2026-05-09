@@ -45,7 +45,7 @@ enum Command {
 
 #[derive(Debug, Args)]
 struct InitArgs {
-    /// Do not fail if a repository already exists.
+    /// Suppress normal output.
     #[arg(long)]
     quiet: bool,
 }
@@ -66,7 +66,7 @@ struct PathArgs {
 #[derive(Debug, Args)]
 struct CommitArgs {
     /// Commit message.
-    #[arg(short, long, value_name = "MESSAGE")]
+    #[arg(short, long, value_name = "MESSAGE", value_parser = non_empty_message)]
     message: String,
 }
 
@@ -200,12 +200,9 @@ mod commands {
     }
 
     async fn commit(app: &App, args: CommitArgs) -> Result<(), CliError> {
+        let _message = args.message;
         let repo = app.open_repo().await;
         let _head = repo.head().await?;
-
-        if args.message.trim().is_empty() {
-            return Err(CliError::NotImplemented("commit message must not be empty"));
-        }
 
         Err(CliError::NotImplemented(
             "committing staged changes is not implemented yet",
@@ -328,6 +325,14 @@ fn generate_key_pair() -> Result<Ed25519KeyPair, CliError> {
     Ed25519KeyPair::from_pkcs8(pkcs8.as_ref()).map_err(|_| CliError::KeyGeneration)
 }
 
+fn non_empty_message(value: &str) -> Result<String, String> {
+    if value.trim().is_empty() {
+        Err("commit message must not be empty".to_owned())
+    } else {
+        Ok(value.to_owned())
+    }
+}
+
 fn short_digest(digest: &Digest) -> String {
     digest
         .as_bytes()
@@ -358,5 +363,32 @@ mod tests {
         let pathspecs = Pathspecs::try_from(vec![PathBuf::from("src/main.rs")]).unwrap();
 
         assert_eq!(pathspecs.paths, vec![PathBuf::from("src/main.rs")]);
+    }
+
+    #[test]
+    fn parses_stage_alias() {
+        let cli = Cli::try_parse_from(["vcs", "add", "src/main.rs"]).unwrap();
+
+        match cli.command {
+            Command::Stage(args) => assert_eq!(args.paths, vec![PathBuf::from("src/main.rs")]),
+            command => panic!("expected stage command, got {command:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_commit_message() {
+        let cli = Cli::try_parse_from(["vcs", "commit", "-m", "Update docs"]).unwrap();
+
+        match cli.command {
+            Command::Commit(args) => assert_eq!(args.message, "Update docs"),
+            command => panic!("expected commit command, got {command:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_empty_commit_message() {
+        let err = Cli::try_parse_from(["vcs", "commit", "-m", "  "]).unwrap_err();
+
+        assert_eq!(err.kind(), clap::error::ErrorKind::ValueValidation);
     }
 }
