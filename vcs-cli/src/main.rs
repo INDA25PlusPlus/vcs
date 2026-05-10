@@ -391,6 +391,11 @@ mod tests {
     }
 
     #[test]
+    fn uses_vcs_binary_name() {
+        assert_eq!(Cli::command().get_name(), "vcs");
+    }
+
+    #[test]
     fn rejects_parent_pathspecs() {
         let err = Pathspecs::try_from(vec![PathBuf::from("../outside")]).unwrap_err();
         assert!(matches!(err, CliError::InvalidPath { .. }));
@@ -423,6 +428,26 @@ mod tests {
         match cli.command {
             Command::Stage(args) => assert_eq!(args.paths, vec![PathBuf::from("src/main.rs")]),
             command => panic!("expected stage command, got {command:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_status_alias() {
+        let cli = Cli::try_parse_from(["vcs", "st", "--short"]).unwrap();
+
+        match cli.command {
+            Command::Status(args) => assert!(args.short),
+            command => panic!("expected status command, got {command:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_unstage_alias() {
+        let cli = Cli::try_parse_from(["vcs", "reset", "src/main.rs"]).unwrap();
+
+        match cli.command {
+            Command::Unstage(args) => assert_eq!(args.paths, vec![PathBuf::from("src/main.rs")]),
+            command => panic!("expected unstage command, got {command:?}"),
         }
     }
 
@@ -471,6 +496,22 @@ mod tests {
             Command::Diff(args) => {
                 assert!(args.staged);
                 assert!(args.name_only);
+            }
+            command => panic!("expected diff command, got {command:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_diff_pathspecs() {
+        let cli = Cli::try_parse_from(["vcs", "diff", "src/main.rs", "Cargo.toml"]).unwrap();
+
+        match cli.command {
+            Command::Diff(args) => {
+                assert!(!args.staged);
+                assert_eq!(
+                    args.paths,
+                    vec![PathBuf::from("src/main.rs"), PathBuf::from("Cargo.toml")]
+                );
             }
             command => panic!("expected diff command, got {command:?}"),
         }
