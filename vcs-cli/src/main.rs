@@ -396,6 +396,16 @@ mod tests {
     }
 
     #[test]
+    fn parses_quiet_init() {
+        let cli = Cli::try_parse_from(["vcs", "init", "--quiet"]).unwrap();
+
+        match cli.command {
+            Command::Init(args) => assert!(args.quiet),
+            command => panic!("expected init command, got {command:?}"),
+        }
+    }
+
+    #[test]
     fn rejects_parent_pathspecs() {
         let err = Pathspecs::try_from(vec![PathBuf::from("../outside")]).unwrap_err();
         assert!(matches!(err, CliError::InvalidPath { .. }));
@@ -429,6 +439,13 @@ mod tests {
             Command::Stage(args) => assert_eq!(args.paths, vec![PathBuf::from("src/main.rs")]),
             command => panic!("expected stage command, got {command:?}"),
         }
+    }
+
+    #[test]
+    fn rejects_stage_without_pathspecs() {
+        let err = Cli::try_parse_from(["vcs", "stage"]).unwrap_err();
+
+        assert_eq!(err.kind(), clap::error::ErrorKind::MissingRequiredArgument);
     }
 
     #[test]
