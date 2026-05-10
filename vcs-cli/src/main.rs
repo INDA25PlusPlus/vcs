@@ -303,28 +303,39 @@ impl TryFrom<Vec<PathBuf>> for Pathspecs {
         let mut pathspecs = Vec::with_capacity(paths.len());
 
         for path in paths {
-            validate_path(&path)?;
-            pathspecs.push(path);
+            pathspecs.push(normalize_path(&path)?);
         }
 
         Ok(Pathspecs { paths: pathspecs })
     }
 }
 
-fn validate_path(path: &Path) -> Result<(), CliError> {
-    let valid = !path.as_os_str().is_empty()
-        && !path.is_absolute()
-        && path
-            .components()
-            .all(|component| matches!(component, Component::Normal(_) | Component::CurDir));
-
-    if valid {
-        Ok(())
-    } else {
-        Err(CliError::InvalidPath {
+fn normalize_path(path: &Path) -> Result<PathBuf, CliError> {
+    if path.as_os_str().is_empty() || path.is_absolute() {
+        return Err(CliError::InvalidPath {
             path: path.to_path_buf(),
-        })
+        });
     }
+
+    let mut normalized = PathBuf::new();
+
+    for component in path.components() {
+        match component {
+            Component::Normal(component) => normalized.push(component),
+            Component::CurDir => {}
+            _ => {
+                return Err(CliError::InvalidPath {
+                    path: path.to_path_buf(),
+                });
+            }
+        }
+    }
+
+    if normalized.as_os_str().is_empty() {
+        normalized.push(".");
+    }
+
+    Ok(normalized)
 }
 
 fn generate_key_pair() -> Result<Ed25519KeyPair, CliError> {
@@ -369,6 +380,19 @@ mod tests {
     #[test]
     fn accepts_relative_pathspecs() {
         let pathspecs = Pathspecs::try_from(vec![PathBuf::from("src/main.rs")]).unwrap();
+
+        assert_eq!(pathspecs.paths, vec![PathBuf::from("src/main.rs")]);
+    }
+
+    #[test]
+    fn rejects_absolute_pathspecs() {
+        let err = Pathspecs::try_from(vec![PathBuf::from("/tmp/file")]).unwrap_err();
+        assert!(matches!(err, CliError::InvalidPath { .. }));
+    }
+
+    #[test]
+    fn normalizes_current_dir_pathspecs() {
+        let pathspecs = Pathspecs::try_from(vec![PathBuf::from("./src/./main.rs")]).unwrap();
 
         assert_eq!(pathspecs.paths, vec![PathBuf::from("src/main.rs")]);
     }
