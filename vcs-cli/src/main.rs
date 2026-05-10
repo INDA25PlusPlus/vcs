@@ -73,14 +73,17 @@ struct CommitArgs {
 #[derive(Debug, Args)]
 struct LogArgs {
     /// Maximum number of revisions to show.
-    #[arg(short = 'n', long, default_value_t = 20)]
+    #[arg(short = 'n', long, default_value_t = 20, value_parser = revision_limit)]
     limit: usize,
+    /// Print one revision per line.
+    #[arg(long)]
+    oneline: bool,
 }
 
 #[derive(Debug, Args)]
 struct DiffArgs {
     /// Show staged changes instead of working tree changes.
-    #[arg(long)]
+    #[arg(long, visible_alias = "cached")]
     staged: bool,
     /// Show only changed path names.
     #[arg(long)]
@@ -214,13 +217,17 @@ mod commands {
         let head = repo.head().await?;
         let metadata = repo.get_revision_metadata(&head).await?;
 
-        println!("revision {}", short_digest(&head));
-        if let Some(committer) = metadata.committer {
-            println!("    {}", committer.message);
-        }
+        let summary = metadata
+            .committer
+            .as_ref()
+            .map(|committer| committer.message.as_ref())
+            .unwrap_or("<uncommitted>");
 
-        if args.limit == 0 {
-            return Ok(());
+        if args.oneline {
+            println!("{} {summary}", short_digest(&head));
+        } else {
+            println!("revision {}", short_digest(&head));
+            println!("    {summary}");
         }
 
         Err(CliError::NotImplemented(
@@ -352,6 +359,18 @@ fn non_empty_message(value: &str) -> Result<String, String> {
     }
 }
 
+fn revision_limit(value: &str) -> Result<usize, String> {
+    let limit = value
+        .parse::<usize>()
+        .map_err(|_| "revision limit must be a positive integer".to_owned())?;
+
+    if limit == 0 {
+        Err("revision limit must be greater than zero".to_owned())
+    } else {
+        Ok(limit)
+    }
+}
+
 fn short_digest(digest: &Digest) -> String {
     digest
         .as_bytes()
@@ -422,5 +441,38 @@ mod tests {
         let err = Cli::try_parse_from(["vcs", "commit", "-m", "  "]).unwrap_err();
 
         assert_eq!(err.kind(), clap::error::ErrorKind::ValueValidation);
+    }
+
+    #[test]
+    fn parses_log_oneline() {
+        let cli = Cli::try_parse_from(["vcs", "log", "--oneline", "-n", "5"]).unwrap();
+
+        match cli.command {
+            Command::Log(args) => {
+                assert!(args.oneline);
+                assert_eq!(args.limit, 5);
+            }
+            command => panic!("expected log command, got {command:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_zero_log_limit() {
+        let err = Cli::try_parse_from(["vcs", "log", "-n", "0"]).unwrap_err();
+
+        assert_eq!(err.kind(), clap::error::ErrorKind::ValueValidation);
+    }
+
+    #[test]
+    fn parses_cached_diff_alias() {
+        let cli = Cli::try_parse_from(["vcs", "diff", "--cached", "--name-only"]).unwrap();
+
+        match cli.command {
+            Command::Diff(args) => {
+                assert!(args.staged);
+                assert!(args.name_only);
+            }
+            command => panic!("expected diff command, got {command:?}"),
+        }
     }
 }
