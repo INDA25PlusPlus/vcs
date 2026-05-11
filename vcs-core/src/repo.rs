@@ -103,6 +103,8 @@ pub enum RepoError<E> {
     InvalidFileDiff(HunkCollectionError),
     #[error("invalid file tree: {0}")]
     InvalidFileTree(FileTreeError),
+    #[error("failed to find ancestor in database")]
+    MissingAncestor,
     #[error("internal storage error: '{0}'")]
     StorageError(E),
 }
@@ -430,8 +432,15 @@ where
             changesets.push(self.changesets.get(patch.changeset()).await?.clone());
         }
         let changeset_digest = combine_changesets(&changesets, self.storage.as_ref()).await?;
+        let parent_header = self.get_revision_header(&parent).await?;
+        let depth = parent_header.depth + 1;
 
-        Ok(Revision::from_parts(parent, changeset_digest, patches))
+        Ok(Revision::from_parts(
+            parent,
+            changeset_digest,
+            depth,
+            patches,
+        ))
     }
 
     pub async fn get_revision_header(
@@ -552,6 +561,69 @@ where
         )?;
 
         Ok(revision_id)
+    }
+
+    pub async fn get_revisions_lca(
+        &self,
+        id_1: &RevisionRef<D>,
+        id_2: &RevisionRef<D>,
+    ) -> RepoResult<RevisionRef<D>, S::RepoStorageError> {
+        let mut id_1 = id_1.clone();
+        let mut id_2 = id_2.clone();
+
+        if id_1 == id_2 {
+            return Ok(id_1);
+        }
+
+        let (mut header_1, mut header_2) = self.get_two_revision_headers(&id_1, &id_2).await?;
+
+        while header_1.depth > header_2.depth {
+            if header_1.parent == id_2 {
+                return Ok(id_2);
+            }
+
+            id_1 = header_1.parent.clone();
+            header_1 = self.get_revision_header(&id_1).await?;
+        }
+
+        while header_2.depth > header_1.depth {
+            if header_2.parent == id_1 {
+                return Ok(id_1);
+            }
+
+            id_2 = header_2.parent.clone();
+            header_2 = self.get_revision_header(&id_2).await?;
+        }
+
+        while id_1 != id_2 {
+            if header_1.depth == 0 || header_2.depth == 0 {
+                return Err(RepoError::MissingAncestor);
+            }
+
+            let parent_1 = header_1.parent.clone();
+            let parent_2 = header_2.parent.clone();
+
+            if parent_1 == parent_2 {
+                return Ok(parent_1);
+            }
+
+            (header_1, header_2) = self.get_two_revision_headers(&parent_1, &parent_2).await?;
+            id_1 = parent_1;
+            id_2 = parent_2;
+        }
+
+        Ok(id_1)
+    }
+
+    async fn get_two_revision_headers(
+        &self,
+        id_1: &RevisionRef<D>,
+        id_2: &RevisionRef<D>,
+    ) -> RepoResult<(RevisionHeader<D>, RevisionHeader<D>), S::RepoStorageError> {
+        tokio::try_join!(
+            self.get_revision_header(id_1),
+            self.get_revision_header(id_2),
+        )
     }
 }
 

@@ -38,6 +38,7 @@ pub struct Patch<D: CryptoDigest + CryptoHash> {
 pub struct RevisionHeader<D: CryptoDigest + CryptoHash> {
     pub changeset: ChangesetRef<D>,
     pub parent: RevisionRef<D>,
+    pub depth: u32,
 }
 
 #[derive(Clone, Debug, CryptoHash, Serialize, Deserialize)]
@@ -91,6 +92,7 @@ where
             header: RevisionHeader {
                 changeset: D::generate(&changeset),
                 parent: D::zero(),
+                depth: 0,
             },
             metadata: RevisionMetadata {
                 version: FORMAT_VERSION,
@@ -109,10 +111,15 @@ where
     pub fn from_parts(
         parent: RevisionRef<D>,
         changeset: ChangesetRef<D>,
+        depth: u32,
         patches: Box<[Patch<D>]>,
     ) -> Revision<D> {
         Revision {
-            header: RevisionHeader { changeset, parent },
+            header: RevisionHeader {
+                changeset,
+                parent,
+                depth,
+            },
             metadata: RevisionMetadata {
                 version: FORMAT_VERSION,
                 patches,

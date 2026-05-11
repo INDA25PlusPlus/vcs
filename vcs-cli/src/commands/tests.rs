@@ -47,6 +47,7 @@ async fn store_revision(app: &App<TestStorage>, revision_id: Digest, parent: Dig
     let header = RevisionHeader {
         changeset: Digest::zero(),
         parent,
+        depth: 0,
     };
     let metadata = RevisionMetadata {
         version: FORMAT_VERSION,

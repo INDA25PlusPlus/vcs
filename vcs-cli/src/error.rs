@@ -9,6 +9,7 @@ pub(crate) enum CliError {
     NoStagedChanges,
     InvalidFileDiff(String),
     InvalidFileChange,
+    MissingAncestor,
     StorageError(String),
     InvalidPath(PathBuf),
     KeyGeneration,
@@ -21,6 +22,7 @@ impl Display for CliError {
             CliError::NoStagedChanges => write!(f, "no staged changes to commit"),
             CliError::InvalidFileDiff(err) => write!(f, "invalid file diff: {err}"),
             CliError::InvalidFileChange => write!(f, "invalid file change sequence"),
+            CliError::MissingAncestor => write!(f, "failed to find common ancestor"),
             CliError::StorageError(err) => write!(f, "{err}"),
             CliError::InvalidPath(path) => {
                 write!(f, "invalid repository path '{}'", path.display())
@@ -40,6 +42,7 @@ impl<E: Display> From<RepoError<E>> for CliError {
             RepoError::InvalidFileDiff(err) => CliError::InvalidFileDiff(err.to_string()),
             RepoError::InvalidFileChange => CliError::InvalidFileChange,
             RepoError::InvalidFileTree(err) => CliError::StorageError(err.to_string()),
+            RepoError::MissingAncestor => CliError::MissingAncestor,
             RepoError::StorageError(err) => CliError::StorageError(err.to_string()),
         }
     }
