@@ -87,7 +87,9 @@ impl TryFrom<&[u8]> for RepoPathComponent {
     type Error = RepoPathError;
 
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-        let has_invalid_chars = value.iter().any(|b| *b == b'\0' || *b == b'/');
+        let has_invalid_chars = value
+            .iter()
+            .any(|b| *b == b'\0' || *b == b'/' || *b == b'\\');
         if !(1usize..=255).contains(&value.len()) || has_invalid_chars {
             return Err(RepoPathError);
         }
@@ -267,7 +269,7 @@ mod tests {
             );
         }
         assert_from_bytes(b"test/path", true);
-        assert_from_bytes(br"test\path", true);
+        assert_from_bytes(br"test\path", false);
         assert_from_bytes(b"test\0/path", false);
         assert_from_bytes(b"test//path", false);
         assert_from_bytes(b"", false);
@@ -279,7 +281,7 @@ mod tests {
 
         #[test]
         fn conversions() {
-            assert_conversions(&[(r"test\path", Some(&["test\\path"]))]);
+            assert_conversions(&[(r"test\path", None)]);
         }
     }
 
