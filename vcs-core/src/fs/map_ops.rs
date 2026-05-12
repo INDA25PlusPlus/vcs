@@ -1,5 +1,7 @@
+use dashmap::{DashMap, ReadOnlyView};
 use std::collections::HashMap;
 use std::hash::Hash;
+use std::ops::Deref;
 
 /// Remove all entries in `map` whose keys are not present in at least one other map.
 ///
@@ -23,6 +25,55 @@ where
         *entry = value;
     } else {
         map.insert(key.clone(), value);
+    }
+}
+
+pub struct DashMapReadOnlyGuard<'a, K, V>
+where
+    K: Eq + Hash,
+{
+    map: &'a mut DashMap<K, V>,
+    read_only: Option<ReadOnlyView<K, V>>,
+}
+
+impl<'a, K, V> DashMapReadOnlyGuard<'a, K, V>
+where
+    K: Eq + Hash,
+{
+    pub fn new(map: &'a mut DashMap<K, V>) -> DashMapReadOnlyGuard<'a, K, V> {
+        let read_only = std::mem::take(map).into_read_only();
+        DashMapReadOnlyGuard {
+            map,
+            read_only: Some(read_only),
+        }
+    }
+}
+
+impl<'a, K, V> Drop for DashMapReadOnlyGuard<'a, K, V>
+where
+    K: Eq + Hash,
+{
+    fn drop(&mut self) {
+        if !std::thread::panicking() {
+            *self.map = self
+                .read_only
+                .take()
+                .expect("read_only should be Some unless guard has been dropped")
+                .into_inner();
+        }
+    }
+}
+
+impl<'a, K, V> Deref for DashMapReadOnlyGuard<'a, K, V>
+where
+    K: Eq + Hash,
+{
+    type Target = ReadOnlyView<K, V>;
+
+    fn deref(&self) -> &Self::Target {
+        self.read_only
+            .as_ref()
+            .expect("read_only should be Some unless guard has been dropped")
     }
 }
 
