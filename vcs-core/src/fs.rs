@@ -11,15 +11,15 @@ use crate::fs::file::{FileChange, FileRef};
 use crate::repo::PendingChanges;
 use crate::repo::repo_storage::RepoStorage;
 use crate::storage::StorageError;
+use dashmap::{DashMap, ReadOnlyView};
 use file::File;
 use path::RepoPath;
-use std::collections::HashMap;
 use std::{future::Future, hash::Hash};
 use thiserror::Error;
 
 pub struct FileTree<D> {
     // todo lazy loading from aggregate repo diffs
-    files: HashMap<RepoPath, FileRef<D>>,
+    files: ReadOnlyView<RepoPath, FileRef<D>>,
 }
 
 pub type FileSystemResult<T, E> = Result<T, FileSystemError<E>>;
@@ -93,7 +93,7 @@ pub trait FileSystem<D: CryptoDigest + CryptoHash + Send> {
         diff_policy: &P,
         storage: &S,
         head: &FileTree<D>,
-        pending_changes: &mut PendingChanges<D>,
+        pending_changes: &PendingChanges<D>,
         head_changed: bool,
     ) -> impl Future<Output = FileSystemReadResult<(), Self::Error, S::RepoStorageError>>
     where
@@ -110,7 +110,7 @@ pub trait FileSystem<D: CryptoDigest + CryptoHash + Send> {
         &self,
         storage: &S,
         head: &FileTree<D>,
-        pending_changes: &PendingChanges<D>,
+        pending_changes: &mut PendingChanges<D>,
         head_changed: bool,
     ) -> impl Future<Output = FileSystemWriteResult<(), Self::Error, S::RepoStorageError>>
     where
@@ -134,8 +134,10 @@ impl<D: CryptoDigest + CryptoHash + Eq + Hash> TryFrom<RepoDiff<D>> for FileTree
                 FileChange::Create(file) => Ok((path, file)),
                 _ => Err(FileTreeError::InvalidFileChangeMode),
             })
-            .collect::<Result<HashMap<_, _>, _>>()
-            .map(|files| FileTree { files })
+            .collect::<Result<DashMap<_, _>, _>>()
+            .map(|files| FileTree {
+                files: files.into_read_only(),
+            })
     }
 }
 

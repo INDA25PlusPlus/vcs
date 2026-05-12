@@ -1,12 +1,12 @@
-use crate::crypto::digest::{CryptoDigest, CryptoHash, CryptoHasher};
+use crate::crypto::digest::{CryptoDigest, CryptoHash, CryptoHasher, crypto_hash_slice_map};
 use crate::fs::file::FileChange;
 use crate::fs::path::RepoPath;
-use std::collections::HashMap;
+use dashmap::DashMap;
 
 /// A collection of changes made to a repository from one revision to another
 #[derive(Clone, Debug)]
 pub struct RepoDiff<D: CryptoDigest + CryptoHash> {
-    pub(crate) file_diffs: HashMap<RepoPath, FileChange<D>>,
+    pub(crate) file_diffs: DashMap<RepoPath, FileChange<D>>,
 }
 
 pub type RepoDiffRef<D> = D;
@@ -14,7 +14,7 @@ pub type RepoDiffRef<D> = D;
 impl<D: CryptoDigest + CryptoHash> RepoDiff<D> {
     pub(crate) fn empty() -> RepoDiff<D> {
         RepoDiff {
-            file_diffs: HashMap::new(),
+            file_diffs: DashMap::new(),
         }
     }
 }
@@ -23,8 +23,8 @@ impl<D: CryptoDigest + CryptoHash> CryptoHash for RepoDiff<D> {
     fn crypto_hash<OutD: CryptoDigest, H: CryptoHasher<Output = OutD>>(&self, state: &mut H) {
         // sort is required for the hash to be deterministic
         let mut entries: Vec<_> = self.file_diffs.iter().collect();
-        entries.sort_by_key(|(path, _)| *path);
-        CryptoHash::crypto_hash_slice(&entries, state);
+        entries.sort_by(|a, b| Ord::cmp(&a.key(), &b.key()));
+        crypto_hash_slice_map(&entries, |entry| entry.pair(), state);
     }
 }
 
@@ -34,13 +34,13 @@ mod tests {
     use crate::diff::repo_diff::RepoDiff;
     use crate::fs::file::FileChange;
     use crate::fs::path::RepoPath;
-    use std::collections::HashMap;
+    use dashmap::DashMap;
 
     #[test]
     fn repo_diff_crypto_hash() {
         fn assert_digest(files: &[(&str, &[u8])], digest: &[u8]) {
             let expected = blake3::Hash::from_slice(digest).unwrap();
-            let mut file_diffs = HashMap::new();
+            let mut file_diffs = DashMap::new();
             for (path, file_digest) in files {
                 file_diffs.insert(
                     RepoPath::try_from(*path).unwrap(),

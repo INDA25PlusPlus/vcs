@@ -1,5 +1,4 @@
 use dashmap::{DashMap, ReadOnlyView};
-use std::collections::HashMap;
 use std::hash::Hash;
 use std::ops::Deref;
 
@@ -17,11 +16,11 @@ macro_rules! remove_difference {
 }
 pub(crate) use remove_difference;
 
-pub fn replace_or_insert<K, V>(map: &mut HashMap<K, V>, key: &K, value: V)
+pub fn replace_or_insert<K, V>(map: &DashMap<K, V>, key: &K, value: V)
 where
     K: Eq + Hash + Clone,
 {
-    if let Some(entry) = map.get_mut(key) {
+    if let Some(mut entry) = map.get_mut(key) {
         *entry = value;
     } else {
         map.insert(key.clone(), value);
@@ -87,8 +86,8 @@ pub enum OuterJoinEntry<VA, VB> {
 /// Perform an outer join on the values of `map_a` and `map_b`, returning an iterator over all
 /// entries which exist in either or both maps.
 pub fn outer_join<'a, K, VA, VB>(
-    map_a: &'a HashMap<K, VA>,
-    map_b: &'a HashMap<K, VB>,
+    map_a: &'a ReadOnlyView<K, VA>,
+    map_b: &'a ReadOnlyView<K, VB>,
 ) -> impl Iterator<Item = (&'a K, OuterJoinEntry<&'a VA, &'a VB>)>
 where
     K: Eq + Hash,
