@@ -1,7 +1,9 @@
 use crate::crypto::digest::{CryptoDigest, CryptoHash};
 use crate::diff::diff_policy::DiffPolicy;
 use crate::fs::file::{File, FileChange, FileDiff, FileDiffRef, FileRef};
-use crate::fs::map_ops::{OuterJoinEntry, outer_join, remove_difference, replace_or_insert};
+use crate::fs::map_ops::{
+    DashMapReadOnlyGuard, OuterJoinEntry, outer_join, remove_difference, replace_or_insert,
+};
 use crate::fs::path::RepoPath;
 use crate::fs::{
     FileSystem, FileSystemError, FileSystemReadError, FileSystemReadResult, FileSystemResult,
@@ -10,13 +12,13 @@ use crate::fs::{
 use crate::repo::PendingChanges;
 use crate::repo::repo_storage::RepoStorage;
 use crate::storage::Storage;
-use std::collections::HashMap;
+use dashmap::DashMap;
 use std::convert::Infallible;
 use std::ops::{Deref, DerefMut};
 use tokio::sync::RwLock;
 
 pub struct MemoryFileSystem {
-    files: RwLock<HashMap<RepoPath, MemoryFileSystemEntry>>,
+    files: RwLock<DashMap<RepoPath, MemoryFileSystemEntry>>,
 }
 
 struct MemoryFileSystemEntry {
@@ -40,7 +42,7 @@ where
     }
 
     async fn write(&self, path: &RepoPath, file: &File) -> Result<(), Self::Error> {
-        self.files.write().await.insert(
+        self.files.read().await.insert(
             path.clone(),
             MemoryFileSystemEntry {
                 file: file.clone(),
@@ -52,7 +54,7 @@ where
 
     async fn delete(&self, path: &RepoPath) -> FileSystemResult<(), Self::Error> {
         self.files
-            .write()
+            .read()
             .await
             .remove(path)
             .ok_or(FileSystemError::MissingFile)?;
@@ -64,19 +66,20 @@ where
         diff_policy: &P,
         storage: &S,
         head: &FileTree<D>,
-        pending_changes: &mut PendingChanges<D>,
+        pending_changes: &PendingChanges<D>,
         head_changed: bool,
     ) -> FileSystemReadResult<(), Self::Error, S::RepoStorageError>
     where
         P: DiffPolicy,
         S: RepoStorage<D>,
     {
-        let files = self.files.read().await;
-        let pending_changes = &mut pending_changes.0.file_diffs;
+        let mut files_guard = self.files.write().await;
+        let files = DashMapReadOnlyGuard::new(files_guard.deref_mut());
+        let pending_changes = &pending_changes.0.file_diffs;
 
         // regardless of if head changed, remove all changes to files that don't exist neither on
         // head nor in the file system
-        remove_difference!(pending_changes, head.files, files.deref());
+        remove_difference!(pending_changes, head.files, files);
 
         for (path, join_entry) in outer_join(&head.files, files.deref()) {
             match join_entry {
@@ -148,25 +151,25 @@ where
         &self,
         storage: &S,
         head: &FileTree<D>,
-        pending_changes: &PendingChanges<D>,
+        pending_changes: &mut PendingChanges<D>,
         head_changed: bool,
     ) -> FileSystemWriteResult<(), Self::Error, S::RepoStorageError>
     where
         S: RepoStorage<D>,
     {
         let mut files = self.files.write().await;
-        let pending_changes = &pending_changes.0.file_diffs;
+        let pending_changes = DashMapReadOnlyGuard::new(&mut pending_changes.0.file_diffs);
 
         // regardless of if head changed, delete all files that don't exist on head and are not
         // changed in pending changes
         remove_difference!(files.deref_mut(), head.files, pending_changes);
 
-        for (path, join_entry) in outer_join(&head.files, pending_changes) {
+        for (path, join_entry) in outer_join(&head.files, pending_changes.deref()) {
             match join_entry {
                 OuterJoinEntry::Left(on_head_digest) => {
                     let dirty = files.get(path).is_none_or(|entry| entry.dirty);
                     if head_changed || dirty {
-                        if let Some(entry) = files.get_mut(path) {
+                        if let Some(mut entry) = files.get_mut(path) {
                             let fs_digest = D::generate(&entry.file);
                             if *on_head_digest == fs_digest {
                                 entry.dirty = false;
@@ -190,7 +193,7 @@ where
                 OuterJoinEntry::Right(FileChange::Create(pending_file_digest)) => {
                     let dirty = files.get(path).is_none_or(|entry| entry.dirty);
                     if head_changed || dirty {
-                        if let Some(entry) = files.get_mut(path) {
+                        if let Some(mut entry) = files.get_mut(path) {
                             let fs_digest = D::generate(&entry.file);
                             if *pending_file_digest == fs_digest {
                                 entry.dirty = false;

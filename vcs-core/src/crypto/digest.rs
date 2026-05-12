@@ -37,6 +37,18 @@ pub trait CryptoHash {
     }
 }
 
+pub fn crypto_hash_slice_map<'data, D: CryptoDigest, H: CryptoHasher<Output = D>, T, U, F>(
+    data: &'data [T],
+    f: F,
+    state: &mut H,
+) where
+    U: 'data + Sized + CryptoHash,
+    F: FnMut(&'data T) -> U,
+{
+    state.write_length_prefix(data.len());
+    data.iter().map(f).for_each(|item| item.crypto_hash(state));
+}
+
 /// Type implementing a cryptographically secure hashing algorithm
 pub trait CryptoHasher {
     type Output: CryptoDigest;
