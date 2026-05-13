@@ -91,17 +91,20 @@ where
 {
     /// Get the value at `key` if it is loaded, or try to load it from storage. Access to the value
     /// is provided through `f`.
+    ///
+    /// **Locking behavior:** Will deadlock if called from a closure passed into `get` or `update`
+    /// on the same `key`.
     pub async fn get<R>(
         &self,
         key: &K,
         f: impl AsyncFnOnce(&V) -> R,
     ) -> StorageResult<R, S::Error> {
-        let entry = self
+        let slot_guard = self
             .items
-            .get_or_insert_with(key, || MutableCacheEntry::Value(OnceCell::new()));
-        let entry_guard = entry.read().await;
+            .read_or_insert_with(key, || MutableCacheEntry::Value(OnceCell::new()))
+            .await;
 
-        match entry_guard.deref() {
+        match slot_guard.deref() {
             MutableCacheEntry::Value(cell) => {
                 // get_or_try_init ensures that the current thread will wait for other threads
                 // before retrieving the initialized value
@@ -116,44 +119,88 @@ where
             }
             MutableCacheEntry::Tombstone => Err(StorageError::MissingObject),
         }
-        // drop entry_guard
+        // drop slot_guard
     }
 
-    /// Update the value at `key` only if able to successfully store the value in storage.
+    /// Set the value at `key` only if able to successfully store the value in storage.
     /// Concurrent calls to this method are guaranteed to perform the stores atomically.
     ///
-    /// **Locking behavior:** Will deadlock if called from a closure passed into `get`.
-    pub async fn update(&self, key: &K, value: V) -> Result<(), S::Error> {
-        let entry = self
+    /// **Locking behavior:** Will deadlock if called from a closure passed into `get` or `update`
+    /// on the same `key`.
+    pub async fn set(&self, key: &K, value: V) -> Result<(), S::Error> {
+        let mut slot_guard = self
             .items
-            .get_or_insert_with(key, || MutableCacheEntry::Value(OnceCell::new()));
-        let mut entry_guard = entry.write().await;
+            .write_or_insert_with(key, || MutableCacheEntry::Value(OnceCell::new()))
+            .await;
 
         // guard ensures no concurrent stores from this cache, which is required for atomicity in
         // this function
         self.storage.store(key, &value).await?;
 
-        *entry_guard = MutableCacheEntry::Value(OnceCell::from(value));
+        *slot_guard = MutableCacheEntry::Value(OnceCell::from(value));
         Ok(())
-        // drop entry_guard
+        // drop slot_guard
+    }
+
+    /// Update the value at `key` with `f`, only if able to successfully store the updated value in
+    /// storage. Concurrent calls to this method are guaranteed to perform the load, update, store,
+    /// and cache replacement atomically.
+    ///
+    /// **Locking behavior:** Will deadlock if called from a closure passed into `get` or `update`
+    /// on the same `key`.
+    pub async fn update(
+        &self,
+        key: &K,
+        f: impl AsyncFnOnce(&V) -> V,
+    ) -> StorageResult<(), S::Error> {
+        let mut slot_guard = self
+            .items
+            .write_or_insert_with(key, || MutableCacheEntry::Value(OnceCell::new()))
+            .await;
+
+        let updated_value = match slot_guard.deref() {
+            MutableCacheEntry::Value(cell) => {
+                // get_or_try_init ensures that the current thread will wait for other threads
+                // before retrieving the initialized value
+                let value = cell
+                    .get_or_try_init(async || {
+                        let value = self.storage.load(key).await?;
+                        Ok(value)
+                    })
+                    .await?;
+
+                f(value).await
+            }
+            MutableCacheEntry::Tombstone => return Err(StorageError::MissingObject),
+        };
+
+        self.storage
+            .store(key, &updated_value)
+            .await
+            .map_err(StorageError::InternalError)?;
+
+        *slot_guard = MutableCacheEntry::Value(OnceCell::from(updated_value));
+        Ok(())
+        // drop slot_guard
     }
 
     /// Remove the entry at `key` only if able to successfully remove the value from storage.
-    /// Concurrent calls to this method with `get` or `update` are guaranteed to leave the cache
-    /// and storage in a consistent state.
+    /// Concurrent calls to this method with `get`, `set`, or `update` are guaranteed to leave the
+    /// cache and storage in a consistent state.
     ///
-    /// **Locking behavior:** Will deadlock if called from a closure passed into `get`.
+    /// **Locking behavior:** Will deadlock if called from a closure passed into `get` or `update`
+    /// on the same `key`.
     pub async fn remove(&self, key: &K) -> Result<(), S::Error> {
-        let entry = self
+        let mut slot_guard = self
             .items
-            .get_or_insert_with(key, || MutableCacheEntry::Value(OnceCell::new()));
-        let mut entry_guard = entry.write().await;
+            .write_or_insert_with(key, || MutableCacheEntry::Value(OnceCell::new()))
+            .await;
 
         // guard ensures no concurrent stores or deletions, which is required for atomicity.
         self.storage.delete(key).await?;
-        *entry_guard = MutableCacheEntry::Tombstone;
+        *slot_guard = MutableCacheEntry::Tombstone;
         Ok(())
-        // drop entry_guard
+        // drop slot_guard
     }
 
     /// Run garbage collection on cached entries that have been removed. Not necessary for normal
@@ -166,12 +213,12 @@ where
                 return true;
             }
 
-            let Ok(entry_guard) = entry.try_read() else {
+            let Ok(slot_guard) = entry.try_read() else {
                 // With no external slot handles, no other task should be able to hold this lock.
                 debug_assert!(false, "Expected read guard");
                 return true;
             };
-            matches!(entry_guard.deref(), MutableCacheEntry::Value(..))
+            matches!(slot_guard.deref(), MutableCacheEntry::Value(..))
             // drop guard
         });
     }
@@ -180,6 +227,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
 
     struct TestStorage;
 
@@ -211,5 +259,66 @@ mod tests {
         // compile error if the future returned from storage.get doesn't
         // implement Send
         require_send(storage.get(&()));
+    }
+
+    struct IntStorage {
+        value: Mutex<Option<i32>>,
+    }
+
+    impl IntStorage {
+        fn new() -> Self {
+            Self {
+                value: Mutex::new(None),
+            }
+        }
+    }
+
+    impl Storage<(), i32> for IntStorage {
+        type Error = ();
+
+        async fn load(&self, _key: &()) -> StorageResult<i32, Self::Error> {
+            self.value
+                .lock()
+                .unwrap()
+                .ok_or(StorageError::MissingObject)
+        }
+
+        async fn store(&self, _key: &(), value: &i32) -> Result<(), Self::Error> {
+            *self.value.lock().unwrap() = Some(*value);
+            Ok(())
+        }
+
+        async fn delete(&self, _key: &()) -> Result<(), Self::Error> {
+            *self.value.lock().unwrap() = None;
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn mutable_cache_set_update_get_round_trip() {
+        let cache = Arc::new(MutableCache::new(Arc::new(IntStorage::new())));
+
+        cache.set(&(), 1).await.unwrap();
+        cache.update(&(), async |value| *value + 1).await.unwrap();
+
+        let value = cache.get(&(), async |value| *value).await.unwrap();
+        assert_eq!(value, 2);
+
+        let update = || {
+            let cache = Arc::clone(&cache);
+            tokio::spawn(async move {
+                cache.update(&(), async |value| *value + 1).await.unwrap();
+            })
+        };
+        let read = || {
+            let cache = Arc::clone(&cache);
+            tokio::spawn(async move { cache.get(&(), async |value| *value).await.unwrap() })
+        };
+
+        let result = tokio::try_join!(update(), update(), update(), read());
+        result.unwrap();
+
+        let result = tokio::try_join!(read(), read());
+        assert_eq!(result.unwrap(), (5, 5));
     }
 }

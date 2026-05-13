@@ -12,7 +12,7 @@ pub mod compose;
 
 use bytes::Bytes;
 
-use crate::diff::ops_stream::{compact::Compact, compose::Compose};
+use crate::diff::operations::{compact::Compact, compose::Compose};
 
 /// A single edit operation.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -53,6 +53,11 @@ impl Op {
             Op::Keep(len) | Op::Delete(len) => *len,
             Op::Insert(buf) => buf.len(),
         }
+    }
+
+    /// Returns true if self is empty
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 }
 

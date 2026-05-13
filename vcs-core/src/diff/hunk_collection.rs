@@ -4,7 +4,7 @@ use bytes::Bytes;
 
 use crate::diff::{
     hunk::Hunk,
-    ops_stream::{Op, OpStreamExt, compact::Compact},
+    operations::{Op, OpStreamExt, compact::Compact},
 };
 
 /// Stored diff for a single file.
