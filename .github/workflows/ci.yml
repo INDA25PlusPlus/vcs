@@ -8,7 +8,6 @@ on:
 env:
   RUSTFLAGS: >-
     -A unused_variables
-    -A unused_mut
     -A unused_macros
     -A dead_code
     -A unreachable_code
@@ -49,7 +48,6 @@ jobs:
         run: >
           cargo clippy --workspace --all-targets --all-features --
           -A unused_variables
-          -A unused_mut
           -A unused_macros
           -A dead_code
           -A unreachable_code
