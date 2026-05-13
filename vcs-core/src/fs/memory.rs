@@ -17,6 +17,7 @@ use crate::storage::Storage;
 use dashmap::DashMap;
 use futures::future::try_join_all;
 use std::convert::Infallible;
+use std::fmt::{Debug, Formatter};
 use std::ops::{Deref, DerefMut};
 use tokio::sync::RwLock;
 
@@ -24,9 +25,18 @@ pub struct MemoryFileSystem {
     files: RwLock<DashMap<RepoPath, MemoryFileSystemEntry>>,
 }
 
+#[derive(Clone, Debug)]
 struct MemoryFileSystemEntry {
     file: File,
     dirty: bool,
+}
+
+impl MemoryFileSystem {
+    pub fn new() -> MemoryFileSystem {
+        MemoryFileSystem {
+            files: RwLock::new(DashMap::new()),
+        }
+    }
 }
 
 impl<D: CryptoDigest + CryptoHash + Send> FileSystem<D> for MemoryFileSystem
@@ -304,4 +314,28 @@ where
         },
     );
     Ok(())
+}
+
+impl Clone for MemoryFileSystem {
+    fn clone(&self) -> Self {
+        let files = self.files.blocking_read();
+        MemoryFileSystem {
+            files: RwLock::new(files.deref().clone()),
+        }
+    }
+}
+
+impl Default for MemoryFileSystem {
+    fn default() -> Self {
+        MemoryFileSystem::new()
+    }
+}
+
+impl Debug for MemoryFileSystem {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let files = self.files.blocking_read();
+        f.debug_struct("MemoryFileSystem")
+            .field("files", files.deref())
+            .finish()
+    }
 }
