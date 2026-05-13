@@ -9,7 +9,3 @@ serde = "1.0.228"
 vcs-core = { path = "../vcs-core" }
 postcard = { version = "1", features = ["alloc"] }
 hex = "0.4"
-
-tokio = { version = "1", features = ["full"] }
-blake3 = "1.5"
-thiserror = "1.0"
