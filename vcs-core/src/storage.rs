@@ -1,6 +1,7 @@
 use thiserror::Error;
 
 pub mod cache;
+pub mod memory;
 mod slotmap;
 
 pub type StorageResult<T, E> = Result<T, StorageError<E>>;
