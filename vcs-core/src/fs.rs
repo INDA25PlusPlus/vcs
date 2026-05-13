@@ -5,9 +5,10 @@ pub mod path;
 
 use crate::crypto::digest::{CryptoDigest, CryptoHash};
 use crate::diff::diff_policy::DiffPolicy;
-use crate::diff::hunk_collection::HunkCollectionError;
+use crate::diff::hunk_collection::{HunkCollection, HunkCollectionError};
 use crate::diff::repo_diff::RepoDiff;
-use crate::fs::file::{FileChange, FileRef};
+use crate::fs::file::{FileChange, FileDiff, FileRef};
+use crate::fs::map_ops::replace_or_insert;
 use crate::repo::PendingChanges;
 use crate::repo::repo_storage::RepoStorage;
 use crate::storage::StorageError;
@@ -88,7 +89,7 @@ pub trait FileSystem<D: CryptoDigest + CryptoHash + Send> {
     /// `head_changed`: Set to `true` if `head` may have changed since the last call to
     /// `read_pending_changes` or `write_pending_changes`. If `false`, the implementer may assume
     /// that `head` has not changed.
-    fn read_pending_changes<P, S>(
+    fn update_pending_changes<P, S>(
         &self,
         diff_policy: &P,
         storage: &S,
@@ -106,7 +107,7 @@ pub trait FileSystem<D: CryptoDigest + CryptoHash + Send> {
     /// `head_changed`: Set to `true` if `head` may have changed since the last call to
     /// `read_pending_changes` or `write_pending_changes`. If `false`, the implementer may assume
     /// that `head` has not changed.
-    fn write_pending_changes<S>(
+    fn apply_pending_changes<S>(
         &self,
         storage: &S,
         head: &FileTree<D>,
@@ -115,6 +116,78 @@ pub trait FileSystem<D: CryptoDigest + CryptoHash + Send> {
     ) -> impl Future<Output = FileSystemWriteResult<(), Self::Error, S::RepoStorageError>>
     where
         S: RepoStorage<D>;
+}
+
+pub async fn update_create_file_change<D, E, S>(
+    storage: &S,
+    pending_changes: &PendingChanges<D>,
+    path: &RepoPath,
+    file: &File,
+) -> FileSystemReadResult<(), E, S::RepoStorageError>
+where
+    D: CryptoDigest + CryptoHash + Send,
+    S: RepoStorage<D>,
+{
+    let PendingChanges(RepoDiff { changeset }) = &pending_changes;
+    let file_digest = file.to_digest();
+    storage
+        .store(&file_digest, file)
+        .await
+        .map_err(FileSystemReadError::StoreError)?;
+    replace_or_insert(changeset, path, FileChange::Create(file_digest));
+    Ok(())
+}
+
+pub async fn update_modify_file_change<D, E, P, S>(
+    diff_policy: &P,
+    storage: &S,
+    pending_changes: &PendingChanges<D>,
+    path: &RepoPath,
+    file_before: &File,
+    file_after: &File,
+) -> FileSystemReadResult<(), E, S::RepoStorageError>
+where
+    D: CryptoDigest + CryptoHash + Send,
+    P: DiffPolicy,
+    S: RepoStorage<D>,
+{
+    let PendingChanges(RepoDiff { changeset }) = &pending_changes;
+    if file_before == file_after {
+        changeset.remove(path);
+    } else {
+        let hunks = if file_before.content == file_after.content {
+            HunkCollection::default()
+        } else {
+            diff_policy.diff(&file_before.content, &file_after.content)
+        };
+        let file_diff = FileDiff {
+            hunks,
+            executable_status: file_after.executable_status,
+        };
+        let file_diff_digest = file_diff.to_digest();
+        storage
+            .store(&file_diff_digest, &file_diff)
+            .await
+            .map_err(FileSystemReadError::StoreError)?;
+        replace_or_insert(changeset, path, FileChange::Modify(file_diff_digest));
+    }
+    Ok(())
+}
+
+pub async fn update_delete_file_change<D, E, S>(
+    storage: &S,
+    pending_changes: &PendingChanges<D>,
+    path: &RepoPath,
+) -> FileSystemReadResult<(), E, S::RepoStorageError>
+where
+    D: CryptoDigest + CryptoHash + Send,
+    S: RepoStorage<D>,
+{
+    let PendingChanges(RepoDiff { changeset }) = &pending_changes;
+    replace_or_insert(changeset, path, FileChange::Delete);
+    // todo decrease ref count
+    let _ = storage;
+    Ok(())
 }
 
 #[derive(Clone, Copy, Debug, Error)]
@@ -128,7 +201,7 @@ impl<D: CryptoDigest + CryptoHash + Eq + Hash> TryFrom<RepoDiff<D>> for FileTree
 
     fn try_from(value: RepoDiff<D>) -> Result<Self, Self::Error> {
         value
-            .file_diffs
+            .changeset
             .into_iter()
             .map(|(path, change)| match change {
                 FileChange::Create(file) => Ok((path, file)),
