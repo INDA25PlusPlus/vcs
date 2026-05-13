@@ -143,7 +143,11 @@ where
                 }
             }
         }
-        // set all non dirty
+        // set all non-dirty
+        drop(files);
+        files_guard
+            .iter_mut()
+            .for_each(|mut entry| entry.dirty = false);
         Ok(())
     }
 
