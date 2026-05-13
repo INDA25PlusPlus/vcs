@@ -39,10 +39,7 @@ impl MemoryFileSystem {
     }
 }
 
-impl<D: CryptoDigest + CryptoHash + Send> FileSystem<D> for MemoryFileSystem
-where
-    D: Eq,
-{
+impl FileSystem for MemoryFileSystem {
     type Error = Infallible;
 
     async fn read(&self, path: &RepoPath) -> FileSystemResult<File, Self::Error> {
@@ -74,7 +71,7 @@ where
         Ok(())
     }
 
-    async fn update_pending_changes<P, S>(
+    async fn update_pending_changes<D, P, S>(
         &self,
         diff_policy: &P,
         storage: &S,
@@ -83,6 +80,7 @@ where
         head_changed: bool,
     ) -> FileSystemReadResult<(), Self::Error, S::RepoStorageError>
     where
+        D: CryptoDigest + CryptoHash + Send + Eq,
         P: DiffPolicy,
         S: RepoStorage<D>,
     {
@@ -113,7 +111,7 @@ where
         Ok(())
     }
 
-    async fn apply_pending_changes<S>(
+    async fn apply_pending_changes<D, S>(
         &self,
         storage: &S,
         head: &FileTree<D>,
@@ -121,6 +119,7 @@ where
         head_changed: bool,
     ) -> FileSystemWriteResult<(), Self::Error, S::RepoStorageError>
     where
+        D: CryptoDigest + CryptoHash + Send + Eq,
         S: RepoStorage<D>,
     {
         let files = self.files.read().await;
