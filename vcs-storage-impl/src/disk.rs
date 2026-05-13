@@ -44,10 +44,7 @@ where
         // make path from key
         let filename = hex::encode(key.bytes());
 
-        let path = self
-            .base_path
-            .join(V::OBJECT_PATH)
-            .join(filename);
+        let path = self.base_path.join(V::OBJECT_PATH).join(filename);
 
         // ensure file exists
         if !path.exists() {
@@ -56,28 +53,16 @@ where
 
         // read bytes
         let bytes = std::fs::read(&path)
-            .map_err(|e| {
-                StorageError::InternalError(
-                    DiskStorageError::Io(e)
-                )
-            })?;
+            .map_err(|e| StorageError::InternalError(DiskStorageError::Io(e)))?;
 
         // deserialize
         let value = postcard::from_bytes::<V>(&bytes)
-            .map_err(|_| {
-                StorageError::InternalError(
-                    DiskStorageError::Deserialization
-                )
-            })?;
+            .map_err(|_| StorageError::InternalError(DiskStorageError::Deserialization))?;
 
         Ok(value)
     }
 
-    async fn store(
-        &self,
-        key: &K,
-        value: &V,
-    ) -> Result<(), Self::Error> {
+    async fn store(&self, key: &K, value: &V) -> Result<(), Self::Error> {
         // make path from key
         let filename = hex::encode(key.bytes());
 
@@ -86,8 +71,7 @@ where
         let path = dir.join(filename);
 
         // serialize
-        let bytes = postcard::to_allocvec(value)
-            .map_err(|_| DiskStorageError::Serialization)?;
+        let bytes = postcard::to_allocvec(value).map_err(|_| DiskStorageError::Serialization)?;
 
         // ensure directory exists
         std::fs::create_dir_all(&dir)?;
@@ -98,28 +82,18 @@ where
         Ok(())
     }
 
-    async fn delete(
-        &self,
-        key: &K,
-    ) -> Result<(), Self::Error> {
+    async fn delete(&self, key: &K) -> Result<(), Self::Error> {
         // make path from key
         let filename = hex::encode(key.bytes());
 
-        let path = self
-            .base_path
-            .join(V::OBJECT_PATH)
-            .join(filename);
+        let path = self.base_path.join(V::OBJECT_PATH).join(filename);
 
         // ensure file exists
         if !path.exists() {
-            return Err(
-                DiskStorageError::Io(
-                    std::io::Error::new(
-                        std::io::ErrorKind::NotFound,
-                        "missing object",
-                    )
-                )
-            );
+            return Err(DiskStorageError::Io(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "missing object",
+            )));
         }
 
         // delete file
