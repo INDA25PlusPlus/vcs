@@ -1,8 +1,5 @@
 pub mod cache;
-pub mod disk;
 mod slotmap;
-
-pub use disk::DiskStorage;
 
 use std::future::Future;
 
