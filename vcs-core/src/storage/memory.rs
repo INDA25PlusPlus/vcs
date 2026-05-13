@@ -1,12 +1,12 @@
+use crate::crypto::digest::{CryptoDigest, CryptoHash};
+use crate::diff::repo_diff::{RepoDiff, RepoDiffRef};
+use crate::fs::file::{File, FileDiff, FileDiffRef, FileRef};
+use crate::repo::repo_storage::RepoStorage;
+use crate::repo::{PendingChanges, StagedChanges};
+use crate::revision::{RevisionHeader, RevisionId, RevisionMetadata};
+use crate::storage::{SingletonStorage, Storage, StorageError, StorageResult};
 use std::convert::Infallible;
 use std::hash::Hash;
-use vcs_core::crypto::digest::{CryptoDigest, CryptoHash};
-use vcs_core::diff::repo_diff::{RepoDiff, RepoDiffRef};
-use vcs_core::fs::file::{File, FileDiff, FileDiffRef, FileRef};
-use vcs_core::repo::repo_storage::RepoStorage;
-use vcs_core::repo::{PendingChanges, StagedChanges};
-use vcs_core::revision::{RevisionHeader, RevisionId, RevisionMetadata};
-use vcs_core::storage::{SingletonStorage, Storage, StorageError, StorageResult};
 
 #[derive(Debug, Default)]
 pub struct MemoryStorage<K: Eq + Hash + Clone, V: Clone> {
