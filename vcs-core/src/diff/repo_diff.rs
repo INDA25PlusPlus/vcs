@@ -6,7 +6,7 @@ use dashmap::DashMap;
 /// A collection of changes made to a repository from one revision to another
 #[derive(Clone, Debug)]
 pub struct RepoDiff<D: CryptoDigest + CryptoHash> {
-    pub(crate) file_diffs: DashMap<RepoPath, FileChange<D>>,
+    pub(crate) changeset: DashMap<RepoPath, FileChange<D>>,
 }
 
 pub type RepoDiffRef<D> = D;
@@ -14,7 +14,7 @@ pub type RepoDiffRef<D> = D;
 impl<D: CryptoDigest + CryptoHash> RepoDiff<D> {
     pub(crate) fn empty() -> RepoDiff<D> {
         RepoDiff {
-            file_diffs: DashMap::new(),
+            changeset: DashMap::new(),
         }
     }
 }
@@ -22,7 +22,7 @@ impl<D: CryptoDigest + CryptoHash> RepoDiff<D> {
 impl<D: CryptoDigest + CryptoHash> CryptoHash for RepoDiff<D> {
     fn crypto_hash<OutD: CryptoDigest, H: CryptoHasher<Output = OutD>>(&self, state: &mut H) {
         // sort is required for the hash to be deterministic
-        let mut entries: Vec<_> = self.file_diffs.iter().collect();
+        let mut entries: Vec<_> = self.changeset.iter().collect();
         entries.sort_by(|a, b| Ord::cmp(&a.key(), &b.key()));
         crypto_hash_slice_map(&entries, |entry| entry.pair(), state);
     }
@@ -47,7 +47,9 @@ mod tests {
                     FileChange::Create(blake3::Hash::from_slice(file_digest).unwrap()),
                 );
             }
-            let repo_diff = RepoDiff { file_diffs };
+            let repo_diff = RepoDiff {
+                changeset: file_diffs,
+            };
             let actual = <blake3::Hash as CryptoDigest>::generate(&repo_diff);
             assert_eq!(actual, expected,);
         }

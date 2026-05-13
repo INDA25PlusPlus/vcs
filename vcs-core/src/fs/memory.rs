@@ -1,5 +1,6 @@
 use crate::crypto::digest::{CryptoDigest, CryptoHash};
 use crate::diff::diff_policy::DiffPolicy;
+use crate::diff::repo_diff::RepoDiff;
 use crate::fs::file::{File, FileChange, FileDiff, FileDiffRef, FileRef};
 use crate::fs::map_ops::{
     DashMapReadOnlyGuard, OuterJoinEntry, outer_join, remove_difference, replace_or_insert,
@@ -7,12 +8,14 @@ use crate::fs::map_ops::{
 use crate::fs::path::RepoPath;
 use crate::fs::{
     FileSystem, FileSystemError, FileSystemReadError, FileSystemReadResult, FileSystemResult,
-    FileSystemWriteError, FileSystemWriteResult, FileTree,
+    FileSystemWriteError, FileSystemWriteResult, FileTree, update_create_file_change,
+    update_delete_file_change, update_modify_file_change,
 };
 use crate::repo::PendingChanges;
 use crate::repo::repo_storage::RepoStorage;
 use crate::storage::Storage;
 use dashmap::DashMap;
+use futures::future::try_join_all;
 use std::convert::Infallible;
 use std::ops::{Deref, DerefMut};
 use tokio::sync::RwLock;
@@ -61,7 +64,7 @@ where
         Ok(())
     }
 
-    async fn read_pending_changes<P, S>(
+    async fn update_pending_changes<P, S>(
         &self,
         diff_policy: &P,
         storage: &S,
@@ -73,85 +76,34 @@ where
         P: DiffPolicy,
         S: RepoStorage<D>,
     {
-        let mut files_guard = self.files.write().await;
-        let files = DashMapReadOnlyGuard::new(files_guard.deref_mut());
-        let pending_changes = &pending_changes.0.file_diffs;
+        let mut files = self.files.write().await;
+        {
+            let files_read_only = DashMapReadOnlyGuard::new(files.deref_mut());
 
-        // regardless of if head changed, remove all changes to files that don't exist neither on
-        // head nor in the file system
-        remove_difference!(pending_changes, head.files, files);
+            // regardless of if head changed, remove all changes to files that don't exist neither on
+            // head nor in the file system
+            remove_difference!(pending_changes.0.changeset, head.files, files_read_only);
 
-        for (path, join_entry) in outer_join(&head.files, files.deref()) {
-            match join_entry {
-                OuterJoinEntry::Left(_) => {
-                    // file exists on head but not in file system
-                    // => the file has been deleted
-                    replace_or_insert(pending_changes, path, FileChange::Delete);
-                }
-                OuterJoinEntry::Right(MemoryFileSystemEntry { file, dirty }) => {
-                    // file does not exist on head but does exist in file system
-                    // => the file has been created
+            let outer_join = outer_join(&head.files, files_read_only.deref());
 
-                    // only update if head has changed or the file has been changed
-                    if head_changed || *dirty {
-                        let file_digest = D::generate(file);
-                        storage
-                            .store(&file_digest, file)
-                            .await
-                            .map_err(FileSystemReadError::StoreError)?;
-                        replace_or_insert(pending_changes, path, FileChange::Create(file_digest));
-                    }
-                }
-                OuterJoinEntry::Both(
-                    on_head_digest,
-                    MemoryFileSystemEntry {
-                        file: fs_file,
-                        dirty,
-                    },
-                ) => {
-                    // file exists both on head and in file system
-                    // => the file may have been modified
-
-                    // only update if head has changed or the file has been changed
-                    if head_changed || *dirty {
-                        let on_head_file =
-                            <S as Storage<FileRef<D>, File>>::load(storage, on_head_digest)
-                                .await
-                                .map_err(FileSystemReadError::LoadError)?;
-
-                        if on_head_file == *fs_file {
-                            pending_changes.remove(path);
-                        } else {
-                            let hunks = diff_policy.diff(&on_head_file.content, &fs_file.content);
-                            let file_diff = FileDiff {
-                                hunks,
-                                executable_status: fs_file.executable_status,
-                            };
-                            let file_diff_digest = D::generate(&file_diff);
-                            storage
-                                .store(&file_diff_digest, &file_diff)
-                                .await
-                                .map_err(FileSystemReadError::StoreError)?;
-
-                            replace_or_insert(
-                                pending_changes,
-                                path,
-                                FileChange::Modify(file_diff_digest),
-                            );
-                        }
-                    }
-                }
-            }
+            let futures = outer_join.map(|(path, outer_join)| {
+                update_change(
+                    diff_policy,
+                    storage,
+                    pending_changes,
+                    head_changed,
+                    path,
+                    outer_join,
+                )
+            });
+            try_join_all(futures).await?;
         }
         // set all non-dirty
-        drop(files);
-        files_guard
-            .iter_mut()
-            .for_each(|mut entry| entry.dirty = false);
+        files.iter_mut().for_each(|mut entry| entry.dirty = false);
         Ok(())
     }
 
-    async fn write_pending_changes<S>(
+    async fn apply_pending_changes<S>(
         &self,
         storage: &S,
         head: &FileTree<D>,
@@ -161,106 +113,195 @@ where
     where
         S: RepoStorage<D>,
     {
-        let mut files = self.files.write().await;
-        let pending_changes = DashMapReadOnlyGuard::new(&mut pending_changes.0.file_diffs);
+        let files = self.files.read().await;
+        let PendingChanges(RepoDiff { changeset }) = pending_changes;
+        let changeset_read_only = DashMapReadOnlyGuard::new(changeset);
 
         // regardless of if head changed, delete all files that don't exist on head and are not
         // changed in pending changes
-        remove_difference!(files.deref_mut(), head.files, pending_changes);
+        remove_difference!(files.deref(), head.files, changeset_read_only);
 
-        for (path, join_entry) in outer_join(&head.files, pending_changes.deref()) {
-            match join_entry {
-                OuterJoinEntry::Left(on_head_digest) => {
-                    let dirty = files.get(path).is_none_or(|entry| entry.dirty);
-                    if head_changed || dirty {
-                        if let Some(mut entry) = files.get_mut(path) {
-                            let fs_digest = D::generate(&entry.file);
-                            if *on_head_digest == fs_digest {
-                                entry.dirty = false;
-                                return Ok(());
-                            }
-                        }
-                        let on_head_file =
-                            <S as Storage<FileRef<D>, File>>::load(storage, on_head_digest)
-                                .await
-                                .map_err(FileSystemWriteError::LoadError)?;
-                        replace_or_insert(
-                            files.deref_mut(),
-                            path,
-                            MemoryFileSystemEntry {
-                                file: on_head_file,
-                                dirty: false,
-                            },
-                        );
-                    }
-                }
-                OuterJoinEntry::Right(FileChange::Create(pending_file_digest)) => {
-                    let dirty = files.get(path).is_none_or(|entry| entry.dirty);
-                    if head_changed || dirty {
-                        if let Some(mut entry) = files.get_mut(path) {
-                            let fs_digest = D::generate(&entry.file);
-                            if *pending_file_digest == fs_digest {
-                                entry.dirty = false;
-                                return Ok(());
-                            }
-                        }
-                        let pending_file =
-                            <S as Storage<FileRef<D>, File>>::load(storage, pending_file_digest)
-                                .await
-                                .map_err(FileSystemWriteError::LoadError)?;
-                        replace_or_insert(
-                            files.deref_mut(),
-                            path,
-                            MemoryFileSystemEntry {
-                                file: pending_file,
-                                dirty: false,
-                            },
-                        );
-                    }
-                }
-                OuterJoinEntry::Right(_) => {
-                    return Err(FileSystemWriteError::InvalidPendingChanges);
-                }
-                OuterJoinEntry::Both(
-                    on_head_digest,
-                    FileChange::Modify(pending_file_diff_digest),
-                ) => {
-                    let dirty = files.get(path).is_none_or(|entry| entry.dirty);
-                    if head_changed || dirty {
-                        let on_head_file =
-                            <S as Storage<FileRef<D>, File>>::load(storage, on_head_digest)
-                                .await
-                                .map_err(FileSystemWriteError::LoadError)?;
-                        let pending_file_diff = <S as Storage<FileDiffRef<D>, FileDiff>>::load(
-                            storage,
-                            pending_file_diff_digest,
-                        )
-                        .await
-                        .map_err(FileSystemWriteError::LoadError)?;
+        let outer_join = outer_join(&head.files, changeset_read_only.deref());
 
-                        let file_contents = pending_file_diff
-                            .hunks
-                            .apply(&on_head_file.content)
-                            .map_err(FileSystemWriteError::HunkError)?;
-                        let file = File {
-                            content: file_contents,
-                            executable_status: pending_file_diff.executable_status,
-                        };
-                        replace_or_insert(
-                            files.deref_mut(),
-                            path,
-                            MemoryFileSystemEntry { file, dirty: false },
-                        );
-                    }
-                }
-                OuterJoinEntry::Both(_, FileChange::Delete) => {
-                    files.remove(path);
-                }
-                OuterJoinEntry::Both(_, _) => {
-                    return Err(FileSystemWriteError::InvalidPendingChanges);
-                }
-            }
-        }
+        let futures = outer_join.map(|(path, outer_join)| {
+            apply_change(storage, files.deref(), head_changed, path, outer_join)
+        });
+        try_join_all(futures).await?;
+
         Ok(())
     }
+}
+
+async fn update_change<D, E, P, S>(
+    diff_policy: &P,
+    storage: &S,
+    pending_changes: &PendingChanges<D>,
+    head_changed: bool,
+    path: &RepoPath,
+    join: OuterJoinEntry<&D, &MemoryFileSystemEntry>,
+) -> FileSystemReadResult<(), E, S::RepoStorageError>
+where
+    D: CryptoDigest + CryptoHash + Send,
+    P: DiffPolicy,
+    S: RepoStorage<D>,
+{
+    match join {
+        OuterJoinEntry::Left(_) => {
+            // file exists on head but not in file system
+            // => the file has been deleted
+            update_delete_file_change(storage, pending_changes, path).await?;
+        }
+        OuterJoinEntry::Right(MemoryFileSystemEntry { file, dirty }) => {
+            // file does not exist on head but does exist in file system
+            // => the file has been created
+
+            // only update if head has changed or the file has been changed
+            if head_changed || *dirty {
+                update_create_file_change(storage, pending_changes, path, file).await?;
+            }
+        }
+        OuterJoinEntry::Both(
+            on_head_digest,
+            MemoryFileSystemEntry {
+                file: fs_file,
+                dirty,
+            },
+        ) => {
+            // file exists both on head and in file system
+            // => the file may have been modified
+
+            // only update if head has changed or the file has been changed
+            if head_changed || *dirty {
+                let on_head_file = <S as Storage<FileRef<D>, File>>::load(storage, on_head_digest)
+                    .await
+                    .map_err(FileSystemReadError::LoadError)?;
+                update_modify_file_change(
+                    diff_policy,
+                    storage,
+                    pending_changes,
+                    path,
+                    &on_head_file,
+                    fs_file,
+                )
+                .await?;
+            }
+        }
+    }
+    Ok(())
+}
+
+async fn apply_change<D, E, S>(
+    storage: &S,
+    files: &DashMap<RepoPath, MemoryFileSystemEntry>,
+    head_changed: bool,
+    path: &RepoPath,
+    join: OuterJoinEntry<&D, &FileChange<D>>,
+) -> FileSystemWriteResult<(), E, S::RepoStorageError>
+where
+    D: CryptoDigest + CryptoHash + Send + Eq,
+    S: RepoStorage<D>,
+{
+    match join {
+        OuterJoinEntry::Left(file_digest)
+        | OuterJoinEntry::Right(FileChange::Create(file_digest)) => {
+            // left: file exists on head, not changed in pending changes
+            // right: file does not exist on head but is created in pending changes
+            // both cases => insert file in file system
+            let dirty = files.get(path).is_none_or(|entry| entry.dirty);
+            if head_changed || dirty {
+                insert_file(storage, files, path, file_digest).await?;
+            }
+        }
+        OuterJoinEntry::Both(on_head_digest, FileChange::Modify(pending_file_diff_digest)) => {
+            let dirty = files.get(path).is_none_or(|entry| entry.dirty);
+            if head_changed || dirty {
+                modify_file(
+                    storage,
+                    files,
+                    path,
+                    on_head_digest,
+                    pending_file_diff_digest,
+                )
+                .await?;
+            }
+        }
+        OuterJoinEntry::Both(_, FileChange::Delete) => {
+            // file exists on head and is deleted in pending changes
+            // => delete file on file system
+            files.remove(path);
+        }
+        OuterJoinEntry::Right(_) | OuterJoinEntry::Both(_, FileChange::Create(_)) => {
+            // right: file does not exist on head but is modified or deleted in pending changes
+            // left and right: file exists on head and is created in pending changes
+            // both cases => invalid
+            return Err(FileSystemWriteError::InvalidPendingChanges);
+        }
+    }
+    Ok(())
+}
+
+async fn insert_file<D, E, S>(
+    storage: &S,
+    files: &DashMap<RepoPath, MemoryFileSystemEntry>,
+    path: &RepoPath,
+    file_digest: &D,
+) -> FileSystemWriteResult<(), E, S::RepoStorageError>
+where
+    D: CryptoDigest + CryptoHash + Send + Eq,
+    S: RepoStorage<D>,
+{
+    // if file already exists and has same hash as the file to be inserted, skip the operation
+    // altogether
+    if let Some(mut entry) = files.get_mut(path) {
+        let current_file_digest = entry.file.to_digest();
+        if *file_digest == current_file_digest {
+            entry.dirty = false;
+            return Ok(());
+        }
+    }
+
+    let file = <S as Storage<FileRef<D>, File>>::load(storage, file_digest)
+        .await
+        .map_err(FileSystemWriteError::LoadError)?;
+
+    replace_or_insert(files, path, MemoryFileSystemEntry { file, dirty: false });
+    Ok(())
+}
+
+async fn modify_file<D, E, S>(
+    storage: &S,
+    files: &DashMap<RepoPath, MemoryFileSystemEntry>,
+    path: &RepoPath,
+    file_before_digest: &FileRef<D>,
+    file_diff_digest: &FileDiffRef<D>,
+) -> FileSystemWriteResult<(), E, S::RepoStorageError>
+where
+    D: CryptoDigest + CryptoHash + Send + Eq,
+    S: RepoStorage<D>,
+{
+    let file_before = <S as Storage<FileRef<D>, File>>::load(storage, file_before_digest)
+        .await
+        .map_err(FileSystemWriteError::LoadError)?;
+    let file_diff = <S as Storage<FileDiffRef<D>, FileDiff>>::load(storage, file_diff_digest)
+        .await
+        .map_err(FileSystemWriteError::LoadError)?;
+
+    let file_after_contents = file_diff
+        .hunks
+        .apply(&file_before.content)
+        .map_err(FileSystemWriteError::HunkError)?;
+    let file_after = File {
+        content: file_after_contents,
+        executable_status: file_diff.executable_status,
+    };
+
+    replace_or_insert(
+        files,
+        path,
+        MemoryFileSystemEntry {
+            file: file_after,
+            dirty: false,
+        },
+    );
+    Ok(())
 }
