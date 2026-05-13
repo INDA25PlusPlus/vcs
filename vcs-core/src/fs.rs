@@ -61,7 +61,7 @@ pub enum FileSystemWriteError<FE, SE> {
     HunkError(HunkCollectionError),
 }
 
-pub trait FileSystem<D: CryptoDigest + CryptoHash + Send> {
+pub trait FileSystem {
     type Error;
 
     /// Read a [`File`] from the file system
@@ -89,7 +89,7 @@ pub trait FileSystem<D: CryptoDigest + CryptoHash + Send> {
     /// `head_changed`: Set to `true` if `head` may have changed since the last call to
     /// `read_pending_changes` or `write_pending_changes`. If `false`, the implementer may assume
     /// that `head` has not changed.
-    fn update_pending_changes<P, S>(
+    fn update_pending_changes<D, P, S>(
         &self,
         diff_policy: &P,
         storage: &S,
@@ -98,6 +98,7 @@ pub trait FileSystem<D: CryptoDigest + CryptoHash + Send> {
         head_changed: bool,
     ) -> impl Future<Output = FileSystemReadResult<(), Self::Error, S::RepoStorageError>>
     where
+        D: CryptoDigest + CryptoHash + Send + Eq,
         P: DiffPolicy,
         S: RepoStorage<D>;
 
@@ -107,7 +108,7 @@ pub trait FileSystem<D: CryptoDigest + CryptoHash + Send> {
     /// `head_changed`: Set to `true` if `head` may have changed since the last call to
     /// `read_pending_changes` or `write_pending_changes`. If `false`, the implementer may assume
     /// that `head` has not changed.
-    fn apply_pending_changes<S>(
+    fn apply_pending_changes<D, S>(
         &self,
         storage: &S,
         head: &FileTree<D>,
@@ -115,6 +116,7 @@ pub trait FileSystem<D: CryptoDigest + CryptoHash + Send> {
         head_changed: bool,
     ) -> impl Future<Output = FileSystemWriteResult<(), Self::Error, S::RepoStorageError>>
     where
+        D: CryptoDigest + CryptoHash + Send + Eq,
         S: RepoStorage<D>;
 }
 
