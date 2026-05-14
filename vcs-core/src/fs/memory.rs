@@ -17,7 +17,7 @@ use crate::storage::Storage;
 use dashmap::DashMap;
 use futures::future::try_join_all;
 use std::convert::Infallible;
-use std::fmt::{Debug, Formatter};
+use std::fmt::Debug;
 use std::ops::{Deref, DerefMut};
 use tokio::sync::RwLock;
 
@@ -315,26 +315,257 @@ where
     Ok(())
 }
 
-impl Clone for MemoryFileSystem {
-    fn clone(&self) -> Self {
-        let files = self.files.blocking_read();
-        MemoryFileSystem {
-            files: RwLock::new(files.deref().clone()),
-        }
-    }
-}
-
 impl Default for MemoryFileSystem {
     fn default() -> Self {
         MemoryFileSystem::new()
     }
 }
 
-impl Debug for MemoryFileSystem {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let files = self.files.blocking_read();
-        f.debug_struct("MemoryFileSystem")
-            .field("files", files.deref())
-            .finish()
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::diff::diff_policy::NaiveDiff;
+    use crate::fs::file::File;
+    use crate::storage::memory::MemoryRepoStorage;
+    use lazy_static::lazy_static;
+
+    lazy_static! {
+        static ref DIFF_POLICY: NaiveDiff = NaiveDiff;
+    }
+
+    lazy_static! {
+        static ref FILE_CONTENT_1: Box<[u8]> =
+            vec![0x00, 0x01, 0x02, 0x03, 0x04,].into_boxed_slice();
+        static ref FILE_CONTENT_2: Box<[u8]> =
+            vec![0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06,].into_boxed_slice();
+        static ref FILE_CONTENT_3: Box<[u8]> = vec![0xff, 0xfe, 0xfd,].into_boxed_slice();
+    }
+
+    lazy_static! {
+        static ref FILE_1A: File = File {
+            content: FILE_CONTENT_1.clone(),
+            executable_status: false,
+        };
+        static ref FILE_1B: File = File {
+            content: FILE_CONTENT_1.clone(),
+            executable_status: true,
+        };
+        static ref FILE_2: File = File {
+            content: FILE_CONTENT_2.clone(),
+            executable_status: false,
+        };
+        static ref FILE_3: File = File {
+            content: FILE_CONTENT_3.clone(),
+            executable_status: false,
+        };
+    }
+
+    lazy_static! {
+        static ref FILE_1A_DIGEST: blake3::Hash = FILE_1A.to_digest();
+        static ref FILE_1B_DIGEST: blake3::Hash = FILE_1B.to_digest();
+        static ref FILE_2_DIGEST: blake3::Hash = FILE_2.to_digest();
+        static ref FILE_3_DIGEST: blake3::Hash = FILE_3.to_digest();
+    }
+
+    lazy_static! {
+        static ref FILE_DIFF_1_2: FileDiff = {
+            let hunks = DIFF_POLICY.diff(&FILE_CONTENT_1, &FILE_CONTENT_2);
+            FileDiff {
+                hunks,
+                executable_status: false,
+            }
+        };
+        static ref FILE_DIFF_1_3: FileDiff = {
+            let hunks = DIFF_POLICY.diff(&FILE_CONTENT_1, &FILE_CONTENT_3);
+            FileDiff {
+                hunks,
+                executable_status: false,
+            }
+        };
+    }
+
+    lazy_static! {
+        static ref FILE_DIFF_1_2_DIGEST: blake3::Hash = FILE_DIFF_1_2.to_digest();
+        static ref FILE_DIFF_1_3_DIGEST: blake3::Hash = FILE_DIFF_1_3.to_digest();
+    }
+
+    async fn test_wrapper(
+        f: impl AsyncFnOnce(
+            &MemoryRepoStorage<blake3::Hash>,
+            &MemoryFileSystem,
+            &FileTree<blake3::Hash>,
+        ),
+    ) {
+        async fn insert(
+            storage: &impl RepoStorage<blake3::Hash>,
+            fs: &MemoryFileSystem,
+            head: &DashMap<RepoPath, FileRef<blake3::Hash>>,
+            path: &str,
+            file: &impl Deref<Target = File>,
+        ) {
+            let file_digest = file.to_digest();
+            let path = RepoPath::try_from(path).unwrap();
+            storage.store(&file_digest, file.deref()).await.unwrap();
+            fs.files.read().await.insert(
+                path.clone(),
+                MemoryFileSystemEntry {
+                    file: file.deref().clone(),
+                    dirty: false,
+                },
+            );
+            head.insert(path, file_digest);
+        }
+        let storage = MemoryRepoStorage::new();
+        let fs = MemoryFileSystem::new();
+        let head = DashMap::new();
+
+        insert(&storage, &fs, &head, "1", &FILE_1A).await;
+        insert(&storage, &fs, &head, "2", &FILE_2).await;
+
+        let head = FileTree {
+            files: head.into_read_only(),
+        };
+        f(&storage, &fs, &head).await;
+    }
+
+    mod update_pending {
+        use super::*;
+
+        struct ExpectedChangeset<'a> {
+            path: &'a str,
+            before: FileChange<blake3::Hash>,
+            after: Option<FileChange<blake3::Hash>>,
+        }
+
+        async fn update_pending_test_wrapper<'a>(
+            changesets: &[ExpectedChangeset<'a>],
+            files: &[(&str, File, bool)],
+            head_changed: bool,
+        ) {
+            test_wrapper(async |storage, fs, head| {
+                let changeset_before = changesets
+                    .iter()
+                    .map(|expected| {
+                        (
+                            RepoPath::try_from(expected.path).unwrap(),
+                            expected.before.clone(),
+                        )
+                    })
+                    .collect();
+                let changeset_after = changesets.iter().map(|expected| {
+                    (
+                        RepoPath::try_from(expected.path).unwrap(),
+                        expected.after.clone(),
+                    )
+                });
+                let pending_changes = PendingChanges(RepoDiff {
+                    changeset: changeset_before,
+                });
+
+                for (path, file, dirty) in files {
+                    let path = RepoPath::try_from(*path).unwrap();
+                    fs.files.read().await.insert(
+                        path,
+                        MemoryFileSystemEntry {
+                            file: file.clone(),
+                            dirty: *dirty,
+                        },
+                    );
+                }
+
+                fs.update_pending_changes(
+                    DIFF_POLICY.deref(),
+                    storage,
+                    head,
+                    &pending_changes,
+                    head_changed,
+                )
+                .await
+                .unwrap();
+
+                for (path, expected_change) in changeset_after {
+                    if let Some(expected_change) = expected_change {
+                        let actual_change = pending_changes.0.changeset.get(&path).unwrap();
+                        assert_eq!(actual_change.deref(), &expected_change);
+                    } else {
+                        assert!(!pending_changes.0.changeset.contains_key(&path));
+                    }
+                }
+            })
+            .await;
+        }
+
+        #[tokio::test]
+        async fn no_changes() {
+            // when head_changed = true, expect pending change to be None as head = file system
+            update_pending_test_wrapper(&[], &[], true).await;
+            update_pending_test_wrapper(
+                &[ExpectedChangeset {
+                    path: "1",
+                    before: FileChange::Create(*FILE_1A_DIGEST),
+                    after: None,
+                }],
+                &[],
+                true,
+            )
+            .await;
+            update_pending_test_wrapper(
+                &[ExpectedChangeset {
+                    path: "1",
+                    before: FileChange::Modify(*FILE_DIFF_1_2_DIGEST),
+                    after: None,
+                }],
+                &[],
+                true,
+            )
+            .await;
+            update_pending_test_wrapper(
+                &[ExpectedChangeset {
+                    path: "1",
+                    before: FileChange::Delete,
+                    after: None,
+                }],
+                &[],
+                true,
+            )
+            .await;
+
+            // when head_changed = false, expect pending change to not have been updated as
+            // dirty = false
+            update_pending_test_wrapper(&[], &[], false).await;
+            update_pending_test_wrapper(
+                &[ExpectedChangeset {
+                    path: "1",
+                    before: FileChange::Create(*FILE_1A_DIGEST),
+                    after: Some(FileChange::Create(*FILE_1A_DIGEST)),
+                }],
+                &[],
+                false,
+            )
+            .await;
+            update_pending_test_wrapper(
+                &[ExpectedChangeset {
+                    path: "1",
+                    before: FileChange::Modify(*FILE_DIFF_1_2_DIGEST),
+                    after: Some(FileChange::Modify(*FILE_DIFF_1_2_DIGEST)),
+                }],
+                &[],
+                false,
+            )
+            .await;
+            update_pending_test_wrapper(
+                &[ExpectedChangeset {
+                    path: "1",
+                    before: FileChange::Delete,
+                    after: Some(FileChange::Delete),
+                }],
+                &[],
+                false,
+            )
+            .await;
+        }
+
+        #[tokio::test]
+        async fn change_executable_status() {}
     }
 }

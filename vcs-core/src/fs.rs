@@ -1,6 +1,6 @@
 pub mod file;
 pub mod map_ops;
-mod memory;
+pub mod memory;
 pub mod path;
 
 use crate::crypto::digest::{CryptoDigest, CryptoHash};

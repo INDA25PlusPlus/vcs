@@ -4,7 +4,7 @@ use crypto_hash_derive::CryptoHash;
 use std::fmt::{Debug, Formatter};
 
 /// A change made to a file from one revision to another
-#[derive(Clone, Debug, CryptoHash)]
+#[derive(Clone, Debug, Eq, PartialEq, CryptoHash)]
 pub enum FileChange<D: CryptoDigest + CryptoHash> {
     Create(FileRef<D>),
     Modify(FileDiffRef<D>),

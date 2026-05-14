@@ -17,5 +17,6 @@ bytemuck = { version = "1.25.0", features = ["must_cast"] }
 futures = { version = "0.3.32", default-features = false, features = ["alloc"] }
 
 [dev-dependencies]
+lazy_static = "1.5.0"
 tokio = { version = "1.50.0", features = ["macros", "rt", "sync"] }
 vcs-storage-impl = { path = "../vcs-storage-impl" }
