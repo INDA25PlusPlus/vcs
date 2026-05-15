@@ -94,7 +94,7 @@ pub trait FileSystem {
         diff_policy: &P,
         storage: &S,
         head: &FileTree<D>,
-        pending_changes: &PendingChanges<D>,
+        pending_changes: &mut PendingChanges<D>,
         head_changed: bool,
     ) -> impl Future<Output = FileSystemReadResult<(), Self::Error, S::RepoStorageError>>
     where
@@ -112,7 +112,7 @@ pub trait FileSystem {
         &self,
         storage: &S,
         head: &FileTree<D>,
-        pending_changes: &mut PendingChanges<D>,
+        pending_changes: &PendingChanges<D>,
         head_changed: bool,
     ) -> impl Future<Output = FileSystemWriteResult<(), Self::Error, S::RepoStorageError>>
     where
@@ -122,7 +122,7 @@ pub trait FileSystem {
 
 pub async fn update_create_file_change<D, E, S>(
     storage: &S,
-    pending_changes: &PendingChanges<D>,
+    pending_changes: &DashMap<RepoPath, FileChange<D>>,
     path: &RepoPath,
     file: &File,
 ) -> FileSystemReadResult<(), E, S::RepoStorageError>
@@ -130,20 +130,19 @@ where
     D: CryptoDigest + CryptoHash + Send,
     S: RepoStorage<D>,
 {
-    let PendingChanges(RepoDiff { changeset }) = &pending_changes;
     let file_digest = file.to_digest();
     storage
         .store(&file_digest, file)
         .await
         .map_err(FileSystemReadError::StoreError)?;
-    replace_or_insert(changeset, path, FileChange::Create(file_digest));
+    replace_or_insert(pending_changes, path, FileChange::Create(file_digest));
     Ok(())
 }
 
 pub async fn update_modify_file_change<D, E, P, S>(
     diff_policy: &P,
     storage: &S,
-    pending_changes: &PendingChanges<D>,
+    pending_changes: &DashMap<RepoPath, FileChange<D>>,
     path: &RepoPath,
     file_before: &File,
     file_after: &File,
@@ -153,9 +152,8 @@ where
     P: DiffPolicy,
     S: RepoStorage<D>,
 {
-    let PendingChanges(RepoDiff { changeset }) = &pending_changes;
     if file_before == file_after {
-        changeset.remove(path);
+        pending_changes.remove(path);
     } else {
         let hunks = if file_before.content == file_after.content {
             HunkCollection::default()
@@ -171,22 +169,21 @@ where
             .store(&file_diff_digest, &file_diff)
             .await
             .map_err(FileSystemReadError::StoreError)?;
-        replace_or_insert(changeset, path, FileChange::Modify(file_diff_digest));
+        replace_or_insert(pending_changes, path, FileChange::Modify(file_diff_digest));
     }
     Ok(())
 }
 
 pub async fn update_delete_file_change<D, E, S>(
     storage: &S,
-    pending_changes: &PendingChanges<D>,
+    pending_changes: &DashMap<RepoPath, FileChange<D>>,
     path: &RepoPath,
 ) -> FileSystemReadResult<(), E, S::RepoStorageError>
 where
     D: CryptoDigest + CryptoHash + Send,
     S: RepoStorage<D>,
 {
-    let PendingChanges(RepoDiff { changeset }) = &pending_changes;
-    replace_or_insert(changeset, path, FileChange::Delete);
+    replace_or_insert(pending_changes, path, FileChange::Delete);
     // todo decrease ref count
     let _ = storage;
     Ok(())
@@ -204,6 +201,7 @@ impl<D: CryptoDigest + CryptoHash + Eq + Hash> TryFrom<RepoDiff<D>> for FileTree
     fn try_from(value: RepoDiff<D>) -> Result<Self, Self::Error> {
         value
             .changeset
+            .into_inner()
             .into_iter()
             .map(|(path, change)| match change {
                 FileChange::Create(file) => Ok((path, file)),

@@ -1,12 +1,12 @@
-use crate::crypto::digest::{CryptoDigest, CryptoHash, CryptoHasher, crypto_hash_slice_map};
+use crate::crypto::digest::{CryptoDigest, CryptoHash, CryptoHasher};
 use crate::fs::file::FileChange;
 use crate::fs::path::RepoPath;
-use dashmap::DashMap;
+use dashmap::{DashMap, ReadOnlyView};
 
 /// A collection of changes made to a repository from one revision to another
 #[derive(Clone, Debug)]
 pub struct RepoDiff<D: CryptoDigest + CryptoHash> {
-    pub(crate) changeset: DashMap<RepoPath, FileChange<D>>,
+    pub(crate) changeset: ReadOnlyView<RepoPath, FileChange<D>>,
 }
 
 pub type RepoDiffRef<D> = D;
@@ -14,7 +14,7 @@ pub type RepoDiffRef<D> = D;
 impl<D: CryptoDigest + CryptoHash> RepoDiff<D> {
     pub(crate) fn empty() -> RepoDiff<D> {
         RepoDiff {
-            changeset: DashMap::new(),
+            changeset: DashMap::new().into_read_only(),
         }
     }
 }
@@ -23,8 +23,8 @@ impl<D: CryptoDigest + CryptoHash> CryptoHash for RepoDiff<D> {
     fn crypto_hash<OutD: CryptoDigest, H: CryptoHasher<Output = OutD>>(&self, state: &mut H) {
         // sort is required for the hash to be deterministic
         let mut entries: Vec<_> = self.changeset.iter().collect();
-        entries.sort_by(|a, b| Ord::cmp(&a.key(), &b.key()));
-        crypto_hash_slice_map(&entries, |entry| entry.pair(), state);
+        entries.sort_by_key(|(k, _v)| *k);
+        entries.crypto_hash(state);
     }
 }
 
@@ -48,7 +48,7 @@ mod tests {
                 );
             }
             let repo_diff = RepoDiff {
-                changeset: file_diffs,
+                changeset: file_diffs.into_read_only(),
             };
             let actual = <blake3::Hash as CryptoDigest>::generate(&repo_diff);
             assert_eq!(actual, expected,);

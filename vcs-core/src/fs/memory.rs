@@ -3,7 +3,8 @@ use crate::diff::diff_policy::DiffPolicy;
 use crate::diff::repo_diff::RepoDiff;
 use crate::fs::file::{File, FileChange, FileDiff, FileDiffRef, FileRef};
 use crate::fs::map_ops::{
-    DashMapReadOnlyGuard, OuterJoinEntry, outer_join, remove_difference, replace_or_insert,
+    DashMapGuard, DashMapReadOnlyGuard, OuterJoinEntry, outer_join, remove_difference,
+    replace_or_insert,
 };
 use crate::fs::path::RepoPath;
 use crate::fs::{
@@ -18,7 +19,7 @@ use dashmap::DashMap;
 use futures::future::try_join_all;
 use std::convert::Infallible;
 use std::fmt::Debug;
-use std::ops::{Deref, DerefMut};
+use std::ops::Deref;
 use tokio::sync::RwLock;
 
 pub struct MemoryFileSystem {
@@ -76,7 +77,7 @@ impl FileSystem for MemoryFileSystem {
         diff_policy: &P,
         storage: &S,
         head: &FileTree<D>,
-        pending_changes: &PendingChanges<D>,
+        pending_changes: &mut PendingChanges<D>,
         head_changed: bool,
     ) -> FileSystemReadResult<(), Self::Error, S::RepoStorageError>
     where
@@ -85,20 +86,24 @@ impl FileSystem for MemoryFileSystem {
         S: RepoStorage<D>,
     {
         let mut files = self.files.write().await;
+
+        let PendingChanges(RepoDiff { changeset }) = pending_changes;
+        let changeset_rw = DashMapGuard::new(changeset);
+
         {
-            let files_read_only = DashMapReadOnlyGuard::new(files.deref_mut());
+            let files_ro = DashMapReadOnlyGuard::new(&mut files);
 
             // regardless of if head changed, remove all changes to files that don't exist neither on
             // head nor in the file system
-            remove_difference!(pending_changes.0.changeset, head.files, files_read_only);
+            remove_difference!(changeset_rw, head.files, files_ro);
 
-            let outer_join = outer_join(&head.files, files_read_only.deref());
+            let outer_join = outer_join(&head.files, files_ro.deref());
 
             let futures = outer_join.map(|(path, outer_join)| {
                 update_change(
                     diff_policy,
                     storage,
-                    pending_changes,
+                    changeset_rw.deref(),
                     head_changed,
                     path,
                     outer_join,
@@ -115,7 +120,7 @@ impl FileSystem for MemoryFileSystem {
         &self,
         storage: &S,
         head: &FileTree<D>,
-        pending_changes: &mut PendingChanges<D>,
+        pending_changes: &PendingChanges<D>,
         head_changed: bool,
     ) -> FileSystemWriteResult<(), Self::Error, S::RepoStorageError>
     where
@@ -124,13 +129,12 @@ impl FileSystem for MemoryFileSystem {
     {
         let files = self.files.read().await;
         let PendingChanges(RepoDiff { changeset }) = pending_changes;
-        let changeset_read_only = DashMapReadOnlyGuard::new(changeset);
 
         // regardless of if head changed, delete all files that don't exist on head and are not
         // changed in pending changes
-        remove_difference!(files.deref(), head.files, changeset_read_only);
+        remove_difference!(files.deref(), head.files, changeset);
 
-        let outer_join = outer_join(&head.files, changeset_read_only.deref());
+        let outer_join = outer_join(&head.files, changeset);
 
         let futures = outer_join.map(|(path, outer_join)| {
             apply_change(storage, files.deref(), head_changed, path, outer_join)
@@ -144,7 +148,7 @@ impl FileSystem for MemoryFileSystem {
 async fn update_change<D, E, P, S>(
     diff_policy: &P,
     storage: &S,
-    pending_changes: &PendingChanges<D>,
+    pending_changes: &DashMap<RepoPath, FileChange<D>>,
     head_changed: bool,
     path: &RepoPath,
     join: OuterJoinEntry<&D, &MemoryFileSystemEntry>,
@@ -443,23 +447,20 @@ mod tests {
             head_changed: bool,
         ) {
             test_wrapper(async |storage, fs, head| {
-                let changeset_before = changesets
-                    .iter()
-                    .map(|expected| {
-                        (
-                            RepoPath::try_from(expected.path).unwrap(),
-                            expected.before.clone(),
-                        )
-                    })
-                    .collect();
+                let changeset_before = changesets.iter().map(|expected| {
+                    (
+                        RepoPath::try_from(expected.path).unwrap(),
+                        expected.before.clone(),
+                    )
+                });
                 let changeset_after = changesets.iter().map(|expected| {
                     (
                         RepoPath::try_from(expected.path).unwrap(),
                         expected.after.clone(),
                     )
                 });
-                let pending_changes = PendingChanges(RepoDiff {
-                    changeset: changeset_before,
+                let mut pending_changes = PendingChanges(RepoDiff {
+                    changeset: changeset_before.collect::<DashMap<_, _>>().into_read_only(),
                 });
 
                 for (path, file, dirty) in files {
@@ -477,7 +478,7 @@ mod tests {
                     DIFF_POLICY.deref(),
                     storage,
                     head,
-                    &pending_changes,
+                    &mut pending_changes,
                     head_changed,
                 )
                 .await
@@ -486,7 +487,7 @@ mod tests {
                 for (path, expected_change) in changeset_after {
                     if let Some(expected_change) = expected_change {
                         let actual_change = pending_changes.0.changeset.get(&path).unwrap();
-                        assert_eq!(actual_change.deref(), &expected_change);
+                        assert_eq!(actual_change, &expected_change);
                     } else {
                         assert!(!pending_changes.0.changeset.contains_key(&path));
                     }
