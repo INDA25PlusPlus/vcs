@@ -58,7 +58,7 @@ impl HunkCollection {
 
     pub fn apply(&self, source: &[u8]) -> Result<Box<[u8]>, HunkCollectionError> {
         // approximate capacity
-        let mut out = Vec::with_capacity(source.len());
+        let mut out = Vec::with_capacity(2 * source.len());
         let source_len = source.len();
 
         let mut index = 0;
@@ -80,6 +80,8 @@ impl HunkCollection {
             index += index_offset;
             out.extend_from_slice(&hunk.content_after);
         }
+        out.extend_from_slice(&source[index..]);
+
         Ok(out.into_boxed_slice())
     }
 }
