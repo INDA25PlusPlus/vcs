@@ -1,10 +1,21 @@
 use serde::{Deserialize, Serialize};
 use std::marker::PhantomData;
 use std::path::PathBuf;
-// use vcs_core::revision::RevisionMetadata;
 
-use vcs_core::crypto::digest::CryptoDigest;
+use vcs_core::crypto::digest::{CryptoDigest, CryptoHash};
+use vcs_core::diff::repo_diff::{RepoDiff, RepoDiffRef};
+use vcs_core::fs::file::{FileDiff, FileDiffRef};
+use vcs_core::repo::{
+    PendingChanges,
+    StagedChanges,
+};
+use vcs_core::revision::{
+    RevisionHeader,
+    RevisionId,
+    RevisionMetadata,
+};
 use vcs_core::storage::{Storage, StorageError, StorageResult};
+use std::error::Error;
 
 pub struct DiskStorage<K, V> {
     pub base_path: PathBuf,
@@ -44,12 +55,9 @@ where
         // make path from key
         let filename = hex::encode(key.bytes());
 
-        let path = self.base_path.join(V::OBJECT_PATH).join(filename);
-
-        // ensure file exists
-        if !path.exists() {
-            return Err(StorageError::MissingObject);
-        }
+        let mut path = self.base_path.to_path_buf();
+        path.push(V::OBJECT_PATH);
+        path.push(filename);
 
         // read bytes
         let bytes = std::fs::read(&path)
@@ -66,9 +74,11 @@ where
         // make path from key
         let filename = hex::encode(key.bytes());
 
-        let dir = self.base_path.join(V::OBJECT_PATH);
+        let mut dir = self.base_path.to_path_buf();
+        dir.push(V::OBJECT_PATH);
 
-        let path = dir.join(filename);
+        let mut path = dir.clone();
+        path.push(filename);
 
         // serialize
         let bytes = postcard::to_allocvec(value).map_err(|_| DiskStorageError::Serialization)?;
@@ -86,15 +96,9 @@ where
         // make path from key
         let filename = hex::encode(key.bytes());
 
-        let path = self.base_path.join(V::OBJECT_PATH).join(filename);
-
-        // ensure file exists
-        if !path.exists() {
-            return Err(DiskStorageError::Io(std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                "missing object",
-            )));
-        }
+        let mut path = self.base_path.to_path_buf();
+        path.push(V::OBJECT_PATH);
+        path.push(filename);
 
         // delete file
         std::fs::remove_file(path)?;
@@ -107,6 +111,22 @@ pub trait DiskStorable {
     const OBJECT_PATH: &'static str;
 }
 
-// impl<D: CryptoDigest> DiskStorable for RevisionMetadata<D> {
-//     const OBJECT_PATH: &'static str = "rev_meta";
-// }
+pub trait RepoStorage<D: CryptoDigest + CryptoHash>:
+    Storage<(), RevisionId<D>, Error = Self::RepoStorageError>
+    + Storage<RevisionId<D>, RevisionHeader<D>, Error = Self::RepoStorageError>
+    + Storage<RevisionId<D>, RevisionMetadata<D>, Error = Self::RepoStorageError>
+    + Storage<RevisionId<D>, PendingChanges<D>, Error = Self::RepoStorageError>
+    + Storage<RevisionId<D>, StagedChanges<D>, Error = Self::RepoStorageError>
+    + Storage<RepoDiffRef<D>, RepoDiff<D>, Error = Self::RepoStorageError>
+    + Storage<FileDiffRef<D>, FileDiff, Error = Self::RepoStorageError>
+    + Send
+    + Sync
+where
+    D: Send,
+{
+    type RepoStorageError: Error + Send;
+}
+
+impl<D: CryptoDigest + CryptoHash> DiskStorable for RevisionMetadata<D> {
+    const OBJECT_PATH: &'static str = "revision_metadata";
+}
