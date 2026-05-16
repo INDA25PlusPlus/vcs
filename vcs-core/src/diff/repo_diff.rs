@@ -32,6 +32,21 @@ impl<D: CryptoDigest + CryptoHash> RepoDiff<D> {
             .map(|entry| (entry.key().clone(), entry.value().clone()))
             .collect()
     }
+
+    pub(crate) fn get(&self, path: &RepoPath) -> Option<FileChange<D>>
+    where
+        D: Clone,
+    {
+        self.changeset.get(path).map(|entry| entry.clone())
+    }
+
+    pub(crate) fn set(&self, path: RepoPath, change: FileChange<D>) {
+        self.changeset.insert(path, change);
+    }
+
+    pub(crate) fn remove(&self, path: &RepoPath) {
+        self.changeset.remove(path);
+    }
 }
 
 impl<D: CryptoDigest + CryptoHash> CryptoHash for RepoDiff<D> {

@@ -37,6 +37,13 @@ impl<D: CryptoDigest + CryptoHash> PendingChanges<D> {
     {
         self.0.changes()
     }
+
+    fn get(&self, path: &RepoPath) -> Option<FileChange<D>>
+    where
+        D: Clone,
+    {
+        self.0.get(path)
+    }
 }
 
 impl<D: CryptoDigest + CryptoHash> StagedChanges<D> {
@@ -53,6 +60,14 @@ impl<D: CryptoDigest + CryptoHash> StagedChanges<D> {
         D: Clone,
     {
         self.0.changes()
+    }
+
+    fn set(&self, path: RepoPath, change: FileChange<D>) {
+        self.0.set(path, change);
+    }
+
+    fn remove(&self, path: &RepoPath) {
+        self.0.remove(path);
     }
 }
 
@@ -239,6 +254,41 @@ where
         Ok(RepoStatus { staged, pending })
     }
 
+    pub async fn stage(&self, paths: &[RepoPath]) -> RepoResult<(), S::RepoStorageError> {
+        let head = self.head().await?;
+        let pending = match self.pending_changes_at(&head).await {
+            Ok(changes) => changes,
+            Err(RepoError::MissingObject) => PendingChanges::empty(),
+            Err(err) => return Err(err),
+        };
+        let staged = match self.staged_changes_at(&head).await {
+            Ok(changes) => changes,
+            Err(RepoError::MissingObject) => StagedChanges::empty(),
+            Err(err) => return Err(err),
+        };
+
+        for path in paths {
+            if let Some(change) = pending.get(path) {
+                staged.set(path.clone(), change);
+            }
+        }
+
+        self.set_staged_changes_at(&head, staged).await
+    }
+
+    pub async fn unstage(&self, paths: &[RepoPath]) -> RepoResult<(), S::RepoStorageError> {
+        let head = self.head().await?;
+        let staged = match self.staged_changes_at(&head).await {
+            Ok(changes) => changes,
+            Err(RepoError::MissingObject) => StagedChanges::empty(),
+            Err(err) => return Err(err),
+        };
+
+        paths.iter().for_each(|path| staged.remove(path));
+
+        self.set_staged_changes_at(&head, staged).await
+    }
+
     // pub async fn get_diff(
     //     &self,
     //     repo_diff_ref: RepoDiffRef<D>,
@@ -302,5 +352,58 @@ where
 
 #[cfg(test)]
 mod tests {
-    // todo: unit tests
+    use super::*;
+    use crate::storage::memory::MemoryRepoStorage;
+    use std::sync::Arc;
+
+    type Digest = blake3::Hash;
+    type TestStorage = MemoryRepoStorage<Digest>;
+
+    #[tokio::test]
+    async fn stage_and_unstage_selected_path_round_trip() {
+        let (repo, head) = repo_with_head().await;
+        let foo = RepoPath::try_from("foo.txt").unwrap();
+        let bar = RepoPath::try_from("bar.txt").unwrap();
+        let foo_change = FileChange::Create(blake3::hash(b"foo"));
+        let bar_change = FileChange::Delete;
+        let pending = pending_changes([
+            (foo.clone(), foo_change.clone()),
+            (bar.clone(), bar_change.clone()),
+        ]);
+
+        repo.set_pending_changes_at(&head, pending).await.unwrap();
+        let paths = [foo.clone()];
+        repo.stage(&paths).await.unwrap();
+
+        let staged = repo.staged_changes_at(&head).await.unwrap();
+        assert_eq!(staged.changes().len(), 1);
+        assert_eq!(staged.changes().get(&foo), Some(&foo_change));
+
+        let pending = repo.pending_changes_at(&head).await.unwrap();
+        assert_eq!(pending.changes().len(), 2);
+        assert_eq!(pending.changes().get(&foo), Some(&foo_change));
+        assert_eq!(pending.changes().get(&bar), Some(&bar_change));
+
+        let paths = [foo.clone()];
+        repo.unstage(&paths).await.unwrap();
+        let staged = repo.staged_changes_at(&head).await.unwrap();
+        assert!(staged.is_empty());
+    }
+
+    async fn repo_with_head() -> (Repo<Digest, TestStorage>, Digest) {
+        let repo = Repo::load(Arc::new(TestStorage::new())).await;
+        let head = blake3::hash(b"head");
+        repo.set_head(head).await.unwrap();
+        (repo, head)
+    }
+
+    fn pending_changes(
+        changes: impl IntoIterator<Item = (RepoPath, FileChange<Digest>)>,
+    ) -> PendingChanges<Digest> {
+        let pending = PendingChanges::empty();
+        for (path, change) in changes {
+            pending.0.set(path, change);
+        }
+        pending
+    }
 }

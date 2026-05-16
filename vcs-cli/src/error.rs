@@ -1,5 +1,6 @@
 use std::convert::Infallible;
 use std::fmt::{self, Display, Formatter};
+use std::path::PathBuf;
 
 use vcs_core::repo::RepoError;
 
@@ -8,6 +9,7 @@ type CoreError = RepoError<Infallible>;
 #[derive(Debug)]
 pub(crate) enum CliError {
     Core(CoreError),
+    InvalidPath(PathBuf),
     KeyGeneration,
 }
 
@@ -16,6 +18,9 @@ impl Display for CliError {
         match self {
             CliError::Core(RepoError::MissingObject) => write!(f, "not a vcs repository"),
             CliError::Core(RepoError::StorageError(err)) => match *err {},
+            CliError::InvalidPath(path) => {
+                write!(f, "invalid repository path '{}'", path.display())
+            }
             CliError::KeyGeneration => write!(f, "failed to create signing key"),
         }
     }
