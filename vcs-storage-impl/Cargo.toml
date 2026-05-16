@@ -4,5 +4,5 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-dashmap = "6.1.0"
-vcs-core = { path = "../vcs-core" }
+dashmap = { workspace = true }
+vcs-core = { workspace = true }
