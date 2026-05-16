@@ -9,7 +9,7 @@ use crate::fs::file::FileDiff;
 use crate::fs::map_ops::DashMapGuard;
 use crate::fs::path::RepoPath;
 use crate::repo::repo_storage::RepoStorage;
-use crate::revision::{Revision, RevisionHeader, RevisionId, RevisionMetadata};
+use crate::revision::{Patch, Revision, RevisionHeader, RevisionId, RevisionMetadata};
 use crate::storage::cache::MutableCache;
 use crate::storage::{StorageError, cache::FrozenCache};
 use std::error::Error;
@@ -250,6 +250,18 @@ where
         self.repo_diffs.insert(&repo_diff_ref, repo_diff).await?;
 
         Ok(repo_diff_ref)
+    }
+
+    #[allow(clippy::diverging_sub_expression)]
+    pub async fn create_revision(
+        &self,
+        parent: RevisionId<D>,
+        patches: Box<[Patch<D>]>,
+    ) -> RepoResult<Revision<D>, S::RepoStorageError> {
+        let repo_diff = todo!("combine patch repo diffs");
+        let repo_diff_ref = self.insert_repo_diff(repo_diff).await?;
+
+        Ok(Revision::from_parts(parent, repo_diff_ref, patches))
     }
 
     pub async fn get_revision_header(
