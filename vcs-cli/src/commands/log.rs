@@ -3,7 +3,7 @@ use crate::{App, Digest, short_digest};
 use vcs_core::crypto::digest::CryptoDigest;
 use vcs_core::revision::RevisionMetadata;
 
-pub(super) async fn run(app: &App) -> Result<(), CliError> {
+pub async fn run(app: &App) -> Result<(), CliError> {
     print!("{}", output(app).await?);
     Ok(())
 }

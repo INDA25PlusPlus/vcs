@@ -5,7 +5,7 @@ use vcs_core::fs::file::FileChange;
 use vcs_core::fs::path::RepoPath;
 use vcs_core::repo::RepoStatus;
 
-pub(super) async fn run(app: &App) -> Result<(), CliError> {
+pub async fn run(app: &App) -> Result<(), CliError> {
     print!("{}", output(app).await?);
     Ok(())
 }
