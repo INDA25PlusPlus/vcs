@@ -8,6 +8,7 @@ use crate::diff::repo_diff::{RepoDiff, RepoDiffRef};
 use crate::fs::file::{FileChange, FileDiff};
 use crate::fs::path::RepoPath;
 use crate::repo::repo_storage::RepoStorage;
+use crate::revision::timestamp::Timestamp;
 use crate::revision::{Patch, Revision, RevisionHeader, RevisionId, RevisionMetadata};
 use crate::storage::cache::MutableCache;
 use crate::storage::{StorageError, cache::FrozenCache};
@@ -44,6 +45,10 @@ impl<D: CryptoDigest + CryptoHash> PendingChanges<D> {
     {
         self.0.get(path)
     }
+
+    fn remove(&self, path: &RepoPath) {
+        self.0.remove(path);
+    }
 }
 
 impl<D: CryptoDigest + CryptoHash> StagedChanges<D> {
@@ -68,6 +73,10 @@ impl<D: CryptoDigest + CryptoHash> StagedChanges<D> {
 
     fn remove(&self, path: &RepoPath) {
         self.0.remove(path);
+    }
+
+    fn repo_diff(self) -> RepoDiff<D> {
+        self.0
     }
 }
 
@@ -103,6 +112,8 @@ pub type RepoResult<T, E> = Result<T, RepoError<E>>;
 pub enum RepoError<E> {
     #[error("failed to find object in database")]
     MissingObject,
+    #[error("no staged changes to commit")]
+    NoStagedChanges,
     #[error("internal storage error: '{0}'")]
     StorageError(E),
 }
@@ -370,11 +381,69 @@ where
 
         Ok(revision_id)
     }
+
+    pub async fn commit_staged(
+        &self,
+        message: Box<str>,
+        sign_context: SignContext<'_>,
+    ) -> RepoResult<RevisionId<D>, S::RepoStorageError> {
+        // Load the staged diff for the current head.
+        let old_head = self.head().await?;
+        let staged = match self.staged_changes_at(&old_head).await {
+            Ok(changes) => changes,
+            Err(RepoError::MissingObject) => StagedChanges::empty(),
+            Err(err) => return Err(err),
+        };
+        if staged.is_empty() {
+            return Err(RepoError::NoStagedChanges);
+        }
+
+        // Pending changes are carried forward to the new head, minus changes that were committed.
+        let pending = match self.pending_changes_at(&old_head).await {
+            Ok(changes) => changes,
+            Err(RepoError::MissingObject) => PendingChanges::empty(),
+            Err(err) => return Err(err),
+        };
+        let staged_changes = staged.changes();
+
+        // Store the staged diff and create a committed revision pointing at it.
+        let repo_diff_ref = self.insert_repo_diff(staged.repo_diff()).await?;
+        let timestamp = Timestamp::now();
+        let patch = Patch::new_signed(
+            repo_diff_ref.clone(),
+            message.clone(),
+            timestamp,
+            sign_context,
+        );
+        let mut revision = Revision::from_parts(old_head.clone(), repo_diff_ref, Box::new([patch]));
+        revision.commit(message, timestamp, sign_context);
+        let revision_id = self.insert_revision(revision).await?;
+
+        // Remove committed changes from pending if they still match the staged value.
+        for (path, change) in staged_changes {
+            if pending.get(&path).as_ref() == Some(&change) {
+                pending.remove(&path);
+            }
+        }
+
+        // Clear consumed state at the old head and store state for the new head before moving HEAD.
+        self.set_staged_changes_at(&old_head, StagedChanges::empty())
+            .await?;
+        self.set_pending_changes_at(&old_head, PendingChanges::empty())
+            .await?;
+        self.set_staged_changes_at(&revision_id, StagedChanges::empty())
+            .await?;
+        self.set_pending_changes_at(&revision_id, pending).await?;
+        self.set_head(revision_id.clone()).await?;
+
+        Ok(revision_id)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::crypto::signature::{SignContext, generate_signing_key};
     use crate::storage::memory::MemoryRepoStorage;
     use std::sync::Arc;
 
@@ -410,6 +479,17 @@ mod tests {
         repo.unstage(&paths).await.unwrap();
         let staged = repo.staged_changes_at(&head).await.unwrap();
         assert!(staged.is_empty());
+    }
+
+    #[tokio::test]
+    async fn commit_staged_rejects_empty_staged_changes() {
+        let (repo, _) = repo_with_head().await;
+        let key_pair = generate_signing_key().unwrap();
+        let result = repo
+            .commit_staged("commit".into(), SignContext::new(&key_pair))
+            .await;
+
+        assert!(matches!(result, Err(RepoError::NoStagedChanges)));
     }
 
     async fn repo_with_head() -> (Repo<Digest, TestStorage>, Digest) {
