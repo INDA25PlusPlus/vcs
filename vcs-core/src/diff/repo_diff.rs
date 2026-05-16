@@ -18,13 +18,19 @@ pub type RepoDiffRef<D> = D;
 
 impl<D: CryptoDigest + CryptoHash> RepoDiff<D> {
     pub(crate) fn empty() -> RepoDiff<D> {
-        RepoDiff {
-            changeset: DashMap::new().into_read_only(),
-        }
+        RepoDiff::default()
     }
 
     pub fn is_empty(&self) -> bool {
         self.changeset.is_empty()
+    }
+}
+
+impl<D: CryptoDigest + CryptoHash> Default for RepoDiff<D> {
+    fn default() -> RepoDiff<D> {
+        RepoDiff {
+            changeset: DashMap::new().into_read_only(),
+        }
     }
 }
 

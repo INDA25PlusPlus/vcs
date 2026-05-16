@@ -9,9 +9,11 @@ use crate::fs::file::FileDiff;
 use crate::fs::map_ops::DashMapGuard;
 use crate::fs::path::RepoPath;
 use crate::repo::repo_storage::RepoStorage;
+use crate::revision::timestamp::Timestamp;
 use crate::revision::{Patch, Revision, RevisionHeader, RevisionId, RevisionMetadata};
 use crate::storage::cache::MutableCache;
 use crate::storage::{StorageError, cache::FrozenCache};
+use futures::try_join;
 use std::error::Error;
 use std::hash::Hash;
 use std::sync::Arc;
@@ -27,7 +29,7 @@ pub struct StagedChanges<D: CryptoDigest + CryptoHash>(pub RepoDiff<D>);
 
 impl<D: CryptoDigest + CryptoHash> PendingChanges<D> {
     pub fn empty() -> PendingChanges<D> {
-        PendingChanges(RepoDiff::empty())
+        PendingChanges::default()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -37,11 +39,23 @@ impl<D: CryptoDigest + CryptoHash> PendingChanges<D> {
 
 impl<D: CryptoDigest + CryptoHash> StagedChanges<D> {
     pub fn empty() -> StagedChanges<D> {
-        StagedChanges(RepoDiff::empty())
+        StagedChanges::default()
     }
 
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
+    }
+}
+
+impl<D: CryptoDigest + CryptoHash> Default for PendingChanges<D> {
+    fn default() -> Self {
+        PendingChanges(RepoDiff::default())
+    }
+}
+
+impl<D: CryptoDigest + CryptoHash> Default for StagedChanges<D> {
+    fn default() -> Self {
+        StagedChanges(RepoDiff::default())
     }
 }
 
@@ -77,6 +91,8 @@ pub type RepoResult<T, E> = Result<T, RepoError<E>>;
 pub enum RepoError<E> {
     #[error("failed to find object in database")]
     MissingObject,
+    #[error("no staged changes to commit")]
+    NoStagedChanges,
     #[error("internal storage error: '{0}'")]
     StorageError(E),
 }
@@ -175,7 +191,7 @@ where
     ) -> RepoResult<R, S::RepoStorageError> {
         Ok(self
             .pending_changes
-            .get_mut_or_default(head, f, async |_key| PendingChanges(RepoDiff::empty()))
+            .get_mut_or_else(head, f, async |_key| PendingChanges(RepoDiff::empty()))
             .await?)
     }
 
@@ -186,7 +202,7 @@ where
     ) -> RepoResult<R, S::RepoStorageError> {
         Ok(self
             .staged_changes
-            .get_mut_or_default(head, f, async |_key| StagedChanges(RepoDiff::empty()))
+            .get_mut_or_else(head, f, async |_key| StagedChanges(RepoDiff::empty()))
             .await?)
     }
 
@@ -316,11 +332,70 @@ where
 
         Ok(revision_id)
     }
+
+    pub async fn commit_staged(
+        &self,
+        author_message: Box<str>,
+        committer_message: Box<str>,
+        sign_context: SignContext<'_>,
+    ) -> RepoResult<RevisionId<D>, S::RepoStorageError> {
+        // Load the staged diff for the current head.
+        let old_head = self.head().await?;
+
+        let (mut new_pending, staged) = try_join!(
+            // Pending changes are carried forward to the new head and removed from the old head.
+            self.pending_changes_at(&old_head, async |pending| std::mem::take(pending)),
+            // replace the staged changes at the old revision with an empty diff
+            self.staged_changes_at(&old_head, async |staged| std::mem::take(staged))
+        )?;
+        if staged.is_empty() {
+            return Err(RepoError::NoStagedChanges);
+        }
+
+        {
+            let new_pending = DashMapGuard::new(&mut new_pending.0.changeset);
+            // todo fix: new pending should be set to:
+            // current_working_dir - new_head
+            // where current_working_dir = head + pending, new_head = head + staged
+            // (`-` is creating a diff, `+` is applying a diff)
+            new_pending.retain(|k, _v| !staged.0.changeset.contains_key(k));
+        }
+
+        let StagedChanges(repo_diff) = staged;
+        let repo_diff_ref = self.insert_repo_diff(repo_diff).await?;
+
+        let timestamp = Timestamp::now();
+        let patch = Patch::new_signed(
+            repo_diff_ref.clone(),
+            author_message,
+            timestamp,
+            sign_context,
+        );
+
+        let mut revision = Revision::from_parts(old_head.clone(), repo_diff_ref, Box::new([patch]));
+        revision.commit(committer_message, timestamp, sign_context);
+        let revision_id = self.insert_revision(revision).await?;
+
+        try_join!(
+            async {
+                self.pending_changes
+                    .set(&revision_id, new_pending)
+                    .await
+                    .map_err(RepoError::StorageError)
+            },
+            // insert empty staged changes
+            self.staged_changes_at(&revision_id, async |_entry| {}),
+            self.set_head(revision_id.clone()),
+        )?;
+
+        Ok(revision_id)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::crypto::signature::{SignContext, generate_signing_key};
     use crate::fs::file::FileChange;
     use crate::storage::memory::MemoryRepoStorage;
     use dashmap::DashMap;
@@ -369,6 +444,21 @@ mod tests {
             .await
             .unwrap();
         assert!(staged.is_empty());
+    }
+
+    #[tokio::test]
+    async fn commit_staged_rejects_empty_staged_changes() {
+        let (repo, _) = repo_with_head().await;
+        let key_pair = generate_signing_key().unwrap();
+        let result = repo
+            .commit_staged(
+                "author".into(),
+                "commit".into(),
+                SignContext::new(&key_pair),
+            )
+            .await;
+
+        assert!(matches!(result, Err(RepoError::NoStagedChanges)));
     }
 
     async fn repo_with_head() -> (Repo<Digest, TestStorage>, Digest) {
