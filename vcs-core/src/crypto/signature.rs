@@ -1,8 +1,15 @@
 use crate::crypto::digest::{CryptoDigest, CryptoHash, CryptoHasher};
+use aws_lc_rs::rand::SystemRandom;
 use aws_lc_rs::signature::{Ed25519KeyPair, KeyPair};
 use serde::{Deserializer, Serializer};
 use std::fmt::{Debug, Formatter};
 use std::marker::PhantomData;
+
+pub fn generate_signing_key() -> Result<Ed25519KeyPair, aws_lc_rs::error::Unspecified> {
+    let random = SystemRandom::new();
+    let pkcs8 = Ed25519KeyPair::generate_pkcs8(&random)?;
+    Ok(Ed25519KeyPair::from_pkcs8(pkcs8.as_ref())?)
+}
 
 #[derive(Copy, Clone)]
 pub struct SignContext<'key> {

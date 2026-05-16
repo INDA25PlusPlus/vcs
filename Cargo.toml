@@ -1,3 +1,12 @@
 [workspace]
 members = ["vcs-cli", "vcs-core", "vcs-core/crypto-hash-derive", "vcs-storage-impl"]
 resolver = "3"
+
+[workspace.dependencies]
+aws-lc-rs = "1.17.0"
+blake3 = "1.8.5"
+cfg-if = "1.0.4"
+dashmap = "6.1.0"
+futures = "0.3.32"
+tokio = { version = "1.52.3", features = ["fs", "macros", "rt", "rt-multi-thread", "sync"] }
+vcs-core = { path = "vcs-core" }

@@ -3,5 +3,12 @@ name = "vcs-cli"
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = "vcs"
+path = "src/main.rs"
+
 [dependencies]
-vcs-core = { path = "../vcs-core" }
+blake3 = { workspace = true }
+clap = { version = "4.6.1", features = ["derive"] }
+tokio = { workspace = true }
+vcs-core = { workspace = true }
