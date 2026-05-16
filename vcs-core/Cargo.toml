@@ -4,20 +4,20 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-aws-lc-rs = "1.16.2"
-blake3 = "1.8.3"
+aws-lc-rs = { workspace = true }
+blake3 = { workspace = true }
 crypto-hash-derive = { path = "crypto-hash-derive" }
-dashmap = "6.1.0"
+dashmap = { workspace = true }
 bytes = "1.11.1"
 elsa = "1.11.2"
 serde = "1.0.228"
 thiserror = "2.0.18"
-tokio = { version = "1.50.0", features = ["macros", "sync"] }
+tokio = { workspace = true }
 bytemuck = { version = "1.25.0", features = ["must_cast"] }
 futures = { version = "0.3.32", default-features = false, features = ["alloc"] }
 rayon = { version = "1.12.0", default-features = false }
 
 [dev-dependencies]
 lazy_static = "1.5.0"
-tokio = { version = "1.50.0", features = ["macros", "rt", "sync"] }
+tokio = { workspace = true, features = ["macros", "rt", "sync"] }
 vcs-storage-impl = { path = "../vcs-storage-impl" }

@@ -4,12 +4,12 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-cfg-if = "1.0.4"
-dashmap = "6.1.0"
-futures = { version = "0.3.32", default-features = false, features = ["alloc"] }
-tokio = { version = "1.52.3", default-features = false, features = ["fs", "sync"] }
-serde = "1.0.228"
-vcs-core = { path = "../vcs-core" }
-postcard = { version = "1", features = ["alloc"] }
+blake3 = { workspace = true }
+cfg-if = { workspace = true }
+dashmap = { workspace = true }
+futures = { workspace = true }
 hex = "0.4"
-blake3 = "1.8.5"
+postcard = { version = "1", features = ["alloc"] }
+serde = "1.0.228"
+tokio = { workspace = true }
+vcs-core = { workspace = true }
