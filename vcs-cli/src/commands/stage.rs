@@ -4,7 +4,7 @@ use crate::App;
 use crate::error::CliError;
 use vcs_core::fs::path::RepoPath;
 
-pub(super) async fn run(app: &App, paths: &[PathBuf]) -> Result<(), CliError> {
+pub async fn run(app: &App, paths: &[PathBuf]) -> Result<(), CliError> {
     let paths = paths
         .iter()
         .map(|path| {

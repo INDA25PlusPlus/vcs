@@ -2,7 +2,7 @@ use crate::App;
 use crate::error::CliError;
 use vcs_core::crypto::signature::{SignContext, generate_signing_key};
 
-pub(super) async fn run(
+pub async fn run(
     app: &App,
     author_message: String,
     committer_message: String,
