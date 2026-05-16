@@ -66,6 +66,10 @@ impl App {
             .await
             .map_err(CliError::from)
     }
+
+    pub(crate) async fn open_repo(&self) -> Repo<Digest, Storage> {
+        Repo::load(self.storage.clone()).await
+    }
 }
 
 pub(crate) fn short_digest(digest: &Digest) -> String {
