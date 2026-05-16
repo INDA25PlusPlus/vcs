@@ -31,3 +31,26 @@ fn parses_log() {
 
     assert!(matches!(args.command, Command::Log));
 }
+
+#[test]
+fn parses_commit_message() {
+    let args = Args::try_parse_from(["vcs", "commit", "-m", "message"]).unwrap();
+    let args_with_committer = Args::try_parse_from([
+        "vcs",
+        "commit",
+        "-m",
+        "author",
+        "--committer-message",
+        "committer",
+    ])
+    .unwrap();
+
+    assert!(matches!(
+        args.command,
+        Command::Commit { author_message, committer_message } if author_message == "message" && committer_message.is_empty()
+    ));
+    assert!(matches!(
+        args_with_committer.command,
+        Command::Commit { author_message, committer_message } if author_message == "author" && committer_message == "committer"
+    ));
+}
