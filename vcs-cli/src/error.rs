@@ -17,6 +17,7 @@ impl Display for CliError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             CliError::Core(RepoError::MissingObject) => write!(f, "not a vcs repository"),
+            CliError::Core(RepoError::NoStagedChanges) => write!(f, "no staged changes to commit"),
             CliError::Core(RepoError::StorageError(err)) => match *err {},
             CliError::InvalidPath(path) => {
                 write!(f, "invalid repository path '{}'", path.display())

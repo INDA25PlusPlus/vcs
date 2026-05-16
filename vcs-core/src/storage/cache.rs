@@ -169,7 +169,7 @@ where
     ///
     /// **Locking behavior:** Will deadlock if called from a closure passed into `get`, `get_mut`
     /// or `update` on the same `key`.
-    pub async fn get_mut_or_default<R>(
+    pub async fn get_mut_or_else<R>(
         &self,
         key: &K,
         f: impl AsyncFnOnce(&mut V) -> R,
