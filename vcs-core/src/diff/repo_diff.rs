@@ -40,7 +40,7 @@ mod tests {
     fn repo_diff_crypto_hash() {
         fn assert_digest(files: &[(&str, &[u8])], digest: &[u8]) {
             let expected = blake3::Hash::from_slice(digest).unwrap();
-            let mut file_diffs = DashMap::new();
+            let file_diffs = DashMap::new();
             for (path, file_digest) in files {
                 file_diffs.insert(
                     RepoPath::try_from(*path).unwrap(),
