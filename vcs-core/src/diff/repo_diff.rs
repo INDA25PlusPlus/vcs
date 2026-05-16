@@ -2,6 +2,7 @@ use crate::crypto::digest::{CryptoDigest, CryptoHash, CryptoHasher, crypto_hash_
 use crate::fs::file::FileChange;
 use crate::fs::path::RepoPath;
 use dashmap::DashMap;
+use std::collections::BTreeMap;
 
 /// A collection of changes made to a repository from one revision to another
 #[derive(Clone, Debug)]
@@ -16,6 +17,20 @@ impl<D: CryptoDigest + CryptoHash> RepoDiff<D> {
         RepoDiff {
             changeset: DashMap::new(),
         }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.changeset.is_empty()
+    }
+
+    pub fn changes(&self) -> BTreeMap<RepoPath, FileChange<D>>
+    where
+        D: Clone,
+    {
+        self.changeset
+            .iter()
+            .map(|entry| (entry.key().clone(), entry.value().clone()))
+            .collect()
     }
 }
 

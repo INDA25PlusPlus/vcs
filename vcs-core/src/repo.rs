@@ -5,11 +5,13 @@ use crypto_hash_derive::CryptoHash;
 use crate::crypto::digest::{CryptoDigest, CryptoHash};
 use crate::crypto::signature::SignContext;
 use crate::diff::repo_diff::RepoDiff;
-use crate::fs::file::FileDiff;
+use crate::fs::file::{FileChange, FileDiff};
+use crate::fs::path::RepoPath;
 use crate::repo::repo_storage::RepoStorage;
 use crate::revision::{Revision, RevisionHeader, RevisionId, RevisionMetadata};
 use crate::storage::cache::MutableCache;
 use crate::storage::{StorageError, cache::FrozenCache};
+use std::collections::BTreeMap;
 use std::error::Error;
 use std::hash::Hash;
 use std::sync::Arc;
@@ -19,6 +21,46 @@ pub struct PendingChanges<D: CryptoDigest + CryptoHash>(pub RepoDiff<D>);
 
 #[derive(Clone, CryptoHash, Debug)]
 pub struct StagedChanges<D: CryptoDigest + CryptoHash>(pub RepoDiff<D>);
+
+impl<D: CryptoDigest + CryptoHash> PendingChanges<D> {
+    pub fn empty() -> PendingChanges<D> {
+        PendingChanges(RepoDiff::empty())
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub fn changes(&self) -> BTreeMap<RepoPath, FileChange<D>>
+    where
+        D: Clone,
+    {
+        self.0.changes()
+    }
+}
+
+impl<D: CryptoDigest + CryptoHash> StagedChanges<D> {
+    pub fn empty() -> StagedChanges<D> {
+        StagedChanges(RepoDiff::empty())
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub fn changes(&self) -> BTreeMap<RepoPath, FileChange<D>>
+    where
+        D: Clone,
+    {
+        self.0.changes()
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct RepoStatus<D: CryptoDigest + CryptoHash> {
+    pub staged: StagedChanges<D>,
+    pub pending: PendingChanges<D>,
+}
 
 pub struct Repo<D: CryptoDigest + CryptoHash, S>
 where
@@ -152,11 +194,9 @@ where
     pub async fn set_pending_changes_at(
         &self,
         revision_id: &RevisionId<D>,
-        diff: RepoDiff<D>,
+        changes: PendingChanges<D>,
     ) -> RepoResult<(), S::RepoStorageError> {
-        self.pending_changes
-            .set(revision_id, PendingChanges(diff))
-            .await?;
+        self.pending_changes.set(revision_id, changes).await?;
 
         Ok(())
     }
@@ -176,13 +216,27 @@ where
     pub async fn set_staged_changes_at(
         &self,
         revision_id: &RevisionId<D>,
-        diff: RepoDiff<D>,
+        changes: StagedChanges<D>,
     ) -> RepoResult<(), S::RepoStorageError> {
-        self.staged_changes
-            .set(revision_id, StagedChanges(diff))
-            .await?;
+        self.staged_changes.set(revision_id, changes).await?;
 
         Ok(())
+    }
+
+    pub async fn status(&self) -> RepoResult<RepoStatus<D>, S::RepoStorageError> {
+        let head = self.head().await?;
+        let pending = match self.pending_changes_at(&head).await {
+            Ok(changes) => changes,
+            Err(RepoError::MissingObject) => PendingChanges::empty(),
+            Err(err) => return Err(err),
+        };
+        let staged = match self.staged_changes_at(&head).await {
+            Ok(changes) => changes,
+            Err(RepoError::MissingObject) => StagedChanges::empty(),
+            Err(err) => return Err(err),
+        };
+
+        Ok(RepoStatus { staged, pending })
     }
 
     // pub async fn get_diff(
