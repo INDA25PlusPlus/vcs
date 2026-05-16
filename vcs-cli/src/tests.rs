@@ -31,3 +31,13 @@ fn parses_log() {
 
     assert!(matches!(args.command, Command::Log));
 }
+
+#[test]
+fn parses_commit_message() {
+    let args = Args::try_parse_from(["vcs", "commit", "-m", "message"]).unwrap();
+
+    assert!(matches!(
+        args.command,
+        Command::Commit { message } if message == "message"
+    ));
+}

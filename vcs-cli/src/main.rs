@@ -42,6 +42,11 @@ pub(crate) enum Command {
         #[arg(required = true)]
         paths: Vec<PathBuf>,
     },
+    /// Commit staged changes.
+    Commit {
+        #[arg(short, long)]
+        message: String,
+    },
 }
 
 #[tokio::main]
