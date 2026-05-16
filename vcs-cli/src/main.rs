@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::Arc;
 
@@ -31,6 +32,16 @@ pub(crate) enum Command {
     Status,
     /// Show recorded revisions.
     Log,
+    /// Stage pending changes.
+    Stage {
+        #[arg(required = true)]
+        paths: Vec<PathBuf>,
+    },
+    /// Unstage staged changes.
+    Unstage {
+        #[arg(required = true)]
+        paths: Vec<PathBuf>,
+    },
 }
 
 #[tokio::main]
