@@ -10,8 +10,6 @@
 use crate::crypto::digest::{CryptoDigest, CryptoHash, CryptoHasher};
 use crate::crypto::signature::SignContext;
 use crate::diff::repo_diff::{RepoDiff, RepoDiffRef};
-use crate::repo::Repo;
-use crate::repo::repo_storage::RepoStorage;
 use crate::revision::author::{Author, AuthorSignature, Committer};
 use crate::revision::timestamp::Timestamp;
 use crypto_hash_derive::CryptoHash;
@@ -110,12 +108,11 @@ where
         rev
     }
 
-    pub async fn new<S: RepoStorage<D>>(
-        repo: &Repo<D, S>,
+    pub fn from_parts(
         parent: RevisionId<D>,
+        repo_diff: RepoDiffRef<D>,
         patches: Box<[Patch<D>]>,
     ) -> Revision<D> {
-        let repo_diff = todo!(); // repo.squash(&patches).await;
         Revision {
             header: RevisionHeader { repo_diff, parent },
             metadata: RevisionMetadata {

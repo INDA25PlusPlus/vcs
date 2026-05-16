@@ -4,7 +4,7 @@ use crypto_hash_derive::CryptoHash;
 
 use crate::crypto::digest::{CryptoDigest, CryptoHash};
 use crate::crypto::signature::SignContext;
-use crate::diff::repo_diff::RepoDiff;
+use crate::diff::repo_diff::{RepoDiff, RepoDiffRef};
 use crate::fs::file::FileDiff;
 use crate::fs::map_ops::DashMapGuard;
 use crate::fs::path::RepoPath;
@@ -242,6 +242,16 @@ where
     //     todo!()
     // }
 
+    pub async fn insert_repo_diff(
+        &self,
+        repo_diff: RepoDiff<D>,
+    ) -> RepoResult<RepoDiffRef<D>, S::RepoStorageError> {
+        let repo_diff_ref = repo_diff.to_digest();
+        self.repo_diffs.insert(&repo_diff_ref, repo_diff).await?;
+
+        Ok(repo_diff_ref)
+    }
+
     pub async fn get_revision_header(
         &self,
         revision_id: &RevisionId<D>,
@@ -269,7 +279,7 @@ where
     pub async fn insert_revision(
         &self,
         revision: Revision<D>,
-    ) -> RepoResult<(), S::RepoStorageError> {
+    ) -> RepoResult<RevisionId<D>, S::RepoStorageError> {
         let header = revision.header();
 
         // Verify parent exists in storage
@@ -292,7 +302,7 @@ where
             self.revision_metadatas.set(&revision_id, metadata),
         )?;
 
-        Ok(())
+        Ok(revision_id)
     }
 }
 
