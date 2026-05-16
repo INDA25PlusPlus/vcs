@@ -22,6 +22,10 @@ impl<D: CryptoDigest + CryptoHash> RepoDiff<D> {
             changeset: DashMap::new().into_read_only(),
         }
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.changeset.is_empty()
+    }
 }
 
 impl<D: CryptoDigest + CryptoHash> CryptoHash for RepoDiff<D> {
