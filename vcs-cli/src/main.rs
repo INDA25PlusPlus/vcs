@@ -47,6 +47,8 @@ pub(crate) enum Command {
         #[arg(short, long)]
         message: String,
     },
+    /// Switch to another revision.
+    Checkout { revision: Digest },
 }
 
 #[tokio::main]

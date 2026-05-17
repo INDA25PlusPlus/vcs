@@ -1,6 +1,7 @@
 use crate::error::CliError;
 use crate::{App, Command};
 
+mod checkout;
 mod commit;
 mod init;
 mod log;
@@ -18,5 +19,6 @@ pub(crate) async fn run(app: &App, command: Command) -> Result<(), CliError> {
         Command::Stage { paths } => stage::run(app, &paths).await,
         Command::Unstage { paths } => unstage::run(app, &paths).await,
         Command::Commit { message } => commit::run(app, message).await,
+        Command::Checkout { revision } => checkout::run(app, revision).await,
     }
 }
