@@ -1,33 +1,13 @@
 use bytes::Bytes;
 
 use crate::diff::{
-    hunk::Hunk,
     hunk_collection::HunkCollection,
     operations::{Op, OpStreamExt},
 };
 
-/// Builds an initial [`HunkCollection`] from source and destination bytes.
-pub trait DiffPolicy {
-    fn diff(&self, src: &[u8], dst: &[u8]) -> HunkCollection;
-}
+use super::DiffPolicy;
 
-/// Trivial policy that replaces the whole file with a single hunk.
-pub struct NaiveDiff;
-
-impl DiffPolicy for NaiveDiff {
-    fn diff(&self, src_buf: &[u8], dst_buf: &[u8]) -> HunkCollection {
-        let src_len = src_buf.len();
-        let hunks = Box::new([Hunk {
-            offset: 0,
-            len_before: src_len.try_into().expect("src_len should fit into u64"),
-            content_after: Box::from(dst_buf),
-        }]);
-
-        HunkCollection::new(hunks)
-    }
-}
-
-/// Computes the shortest edit script between two byte slices.
+/// Computes the shortest edit script between two byte slices using Myers' algorithm.
 fn myers_ops(src: &[u8], dst: &[u8]) -> Vec<Op> {
     let (n, m) = (src.len(), dst.len());
 
@@ -42,24 +22,26 @@ fn myers_ops(src: &[u8], dst: &[u8]) -> Vec<Op> {
         return vec![Op::Delete(n)];
     }
 
-    let mut dp = vec![vec![0usize; m + 1]; n + 1];
+    let mut edit_distance = vec![vec![0usize; m + 1]; n + 1];
 
     // Initialize base cases
-    for (i, row) in dp.iter_mut().enumerate() {
+    for (i, row) in edit_distance.iter_mut().enumerate() {
         row[0] = i;
     }
-    for (j, val) in dp[0].iter_mut().enumerate() {
+    for (j, val) in edit_distance[0].iter_mut().enumerate() {
         *val = j;
     }
 
-    // Fill DP table
+    // Fill edit distance table
     for i in 1..=n {
         for j in 1..=m {
             if src[i - 1] == dst[j - 1] {
-                dp[i][j] = dp[i - 1][j - 1];
+                edit_distance[i][j] = edit_distance[i - 1][j - 1];
             } else {
-                dp[i][j] =
-                    1 + std::cmp::min(dp[i - 1][j], std::cmp::min(dp[i][j - 1], dp[i - 1][j - 1]));
+                edit_distance[i][j] = 1 + std::cmp::min(
+                    edit_distance[i - 1][j],
+                    std::cmp::min(edit_distance[i][j - 1], edit_distance[i - 1][j - 1]),
+                );
             }
         }
     }
@@ -73,7 +55,7 @@ fn myers_ops(src: &[u8], dst: &[u8]) -> Vec<Op> {
             ops.push(Op::Keep(1));
             i -= 1;
             j -= 1;
-        } else if j > 0 && (i == 0 || dp[i][j - 1] < dp[i - 1][j]) {
+        } else if j > 0 && (i == 0 || edit_distance[i][j - 1] < edit_distance[i - 1][j]) {
             ops.push(Op::Insert(Bytes::copy_from_slice(&dst[j - 1..j])));
             j -= 1;
         } else {
@@ -112,6 +94,7 @@ impl DiffPolicy for MyersDiff {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::diff::diff_policy::naive::NaiveDiff;
 
     const SRC_DST_DATA: [(&[u8], &[u8]); 3] = [
         ("Hello".as_bytes(), "World".as_bytes()),
@@ -119,18 +102,12 @@ mod tests {
         ("MLKLKMEFELUHMBOREJJEIWFEWFMAÖÖÖÖ".as_bytes(), "".as_bytes()),
     ];
 
-    #[test]
-    fn test_naive_diff_short() {
-        let differ = NaiveDiff;
-
-        // NaiveDiff always emits one full-file replacement hunk.
-        for (src, dst) in SRC_DST_DATA {
-            let diff = differ.diff(src, dst);
-            assert!(!diff.hunks.is_empty());
-            assert_eq!(diff.hunks[0].offset, 0);
-            assert_eq!(diff.hunks[0].len_before, src.len().try_into().unwrap());
-            assert_eq!(*diff.hunks[0].content_after, *dst);
-        }
+    /// Calculates the total size of a diff in bytes (bytes deleted + bytes inserted).
+    fn diff_size(hunks: &[crate::diff::hunk::Hunk]) -> u64 {
+        hunks
+            .iter()
+            .map(|hunk| hunk.len_before + hunk.content_after.len() as u64)
+            .sum()
     }
 
     #[test]
@@ -173,7 +150,7 @@ mod tests {
 
         assert_eq!(diff.hunks.len(), 1);
         assert_eq!(diff.hunks[0].offset, 0);
-        assert_eq!(diff.hunks[0].len_before, src.len());
+        assert_eq!(diff.hunks[0].len_before, src.len() as u64);
         assert!(diff.hunks[0].content_after.is_empty());
     }
 
@@ -195,15 +172,51 @@ mod tests {
             let diff = differ.diff(src, dst);
 
             let mut result = Vec::new();
-            let mut pos = 0;
+            let mut pos: u64 = 0;
             for hunk in diff.hunks.iter() {
-                result.extend_from_slice(&src[pos..pos + hunk.offset]);
+                let pos_start = pos as usize;
+                let pos_end = (pos + hunk.offset) as usize;
+                result.extend_from_slice(&src[pos_start..pos_end]);
                 pos += hunk.offset + hunk.len_before;
                 result.extend_from_slice(&hunk.content_after);
             }
-            result.extend_from_slice(&src[pos..]);
+            result.extend_from_slice(&src[pos as usize..]);
 
             assert_eq!(result, dst);
+        }
+    }
+
+    #[test]
+    fn test_myers_diff_smaller_than_naive() {
+        // Verify that Myers produces more compact diffs than naive replacement.
+        let myers = MyersDiff;
+        let naive = NaiveDiff;
+
+        let test_cases = [
+            (b"hello world".as_slice(), b"hello world!".as_slice()),
+            (b"abcdefgh".as_slice(), b"abXdefgh".as_slice()),
+            (
+                b"the quick brown fox".as_slice(),
+                b"the quick red fox".as_slice(),
+            ),
+        ];
+
+        for (src, dst) in test_cases {
+            let myers_diff = myers.diff(src, dst);
+            let naive_diff = naive.diff(src, dst);
+
+            let myers_size = diff_size(&myers_diff.hunks);
+            let naive_size = diff_size(&naive_diff.hunks);
+
+            assert!(
+                myers_size <= naive_size,
+                "Myers diff should be smaller than naive for ({:?} -> {:?}): \
+                 Myers size={}, Naive size={}",
+                String::from_utf8_lossy(src),
+                String::from_utf8_lossy(dst),
+                myers_size,
+                naive_size
+            );
         }
     }
 }
