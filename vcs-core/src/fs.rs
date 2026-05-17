@@ -64,25 +64,6 @@ pub enum FileSystemWriteError<FE, SE> {
 pub trait FileSystem {
     type Error;
 
-    /// Read a [`File`] from the file system
-    fn read(
-        &self,
-        path: &RepoPath,
-    ) -> impl Future<Output = FileSystemResult<File, Self::Error>> + Send;
-
-    /// Write a [`File`] to the file system
-    fn write(
-        &self,
-        path: &RepoPath,
-        file: &File,
-    ) -> impl Future<Output = Result<(), Self::Error>> + Send;
-
-    /// Delete a [`File`] from the file system
-    fn delete(
-        &self,
-        path: &RepoPath,
-    ) -> impl Future<Output = FileSystemResult<(), Self::Error>> + Send;
-
     /// Update `pending_changes` to match the diff from `head` to the current file tree.
     /// (`pending_changes` = files - `head`)
     ///
