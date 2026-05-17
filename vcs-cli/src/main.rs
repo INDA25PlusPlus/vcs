@@ -49,6 +49,8 @@ pub(crate) enum Command {
         #[arg(long, default_value = "")]
         committer_message: String,
     },
+    /// Switch to another revision.
+    Checkout { revision: Digest },
 }
 
 #[tokio::main]
