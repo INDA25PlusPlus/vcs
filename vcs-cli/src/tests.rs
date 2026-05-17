@@ -54,3 +54,14 @@ fn parses_commit_message() {
         Command::Commit { author_message, committer_message } if author_message == "author" && committer_message == "committer"
     ));
 }
+
+#[test]
+fn parses_checkout_revision() {
+    let revision = blake3::hash(b"revision");
+    let args = Args::try_parse_from(["vcs", "checkout", &revision.to_hex()]).unwrap();
+
+    assert!(matches!(
+        args.command,
+        Command::Checkout { revision: parsed } if parsed == revision
+    ));
+}

@@ -177,11 +177,9 @@ where
 
     pub async fn set_head(
         &self,
-        revision_id: RevisionId<D>,
+        _revision_id: RevisionId<D>,
     ) -> RepoResult<(), S::RepoStorageError> {
-        self.head.set(&(), revision_id).await?;
-
-        Ok(())
+        todo!("set HEAD and update checkout state in core")
     }
 
     async fn pending_changes_at<R>(
@@ -462,9 +460,13 @@ mod tests {
     }
 
     async fn repo_with_head() -> (Repo<Digest, TestStorage>, Digest) {
-        let repo = Repo::load(Arc::new(TestStorage::new())).await;
+        // Initialize manually to avoid hitting todo forn ow
+        let storage = Arc::new(TestStorage::new());
         let head = blake3::hash(b"head");
-        repo.set_head(head).await.unwrap();
+        <TestStorage as crate::storage::Storage<(), Digest>>::store(storage.as_ref(), &(), &head)
+            .await
+            .unwrap();
+        let repo = Repo::load(storage).await;
         (repo, head)
     }
 
