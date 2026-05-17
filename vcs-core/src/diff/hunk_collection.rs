@@ -57,8 +57,15 @@ impl HunkCollection {
     }
 
     pub fn apply(&self, source: &[u8]) -> Result<Box<[u8]>, HunkCollectionError> {
+        let mut out = vec![];
+        self.apply_buf(source, &mut out)?;
+        Ok(out.into_boxed_slice())
+    }
+
+    pub fn apply_buf(&self, source: &[u8], out: &mut Vec<u8>) -> Result<(), HunkCollectionError> {
+        out.clear();
         // approximate capacity
-        let mut out = Vec::with_capacity(2 * source.len());
+        out.reserve(2 * source.len());
         let source_len = source.len();
 
         let mut index = 0;
@@ -82,7 +89,7 @@ impl HunkCollection {
         }
         out.extend_from_slice(&source[index..]);
 
-        Ok(out.into_boxed_slice())
+        Ok(())
     }
 }
 
