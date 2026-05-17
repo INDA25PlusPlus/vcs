@@ -1,7 +1,12 @@
 use crate::crypto::digest::{CryptoDigest, CryptoHash, CryptoHasher};
-use crate::fs::file::FileChange;
+use crate::fs::file::{FileChange, FileChangeError, combine_file_changes};
 use crate::fs::path::RepoPath;
+use crate::repo::repo_storage::RepoStorage;
+use crate::storage::{Storage, StorageError};
 use dashmap::{DashMap, ReadOnlyView};
+use futures::future::try_join_all;
+use std::collections::HashMap;
+use std::ops::Deref;
 
 /// A collection of changes made to a repository from one revision to another
 #[derive(Clone, Debug)]
@@ -26,6 +31,48 @@ impl<D: CryptoDigest + CryptoHash> CryptoHash for RepoDiff<D> {
         entries.sort_by_key(|(k, _v)| *k);
         entries.crypto_hash(state);
     }
+}
+
+pub async fn combine_repo_diffs<'a, D, S>(
+    repo_diffs: &[RepoDiff<D>],
+    storage: &S,
+) -> Result<RepoDiffRef<D>, FileChangeError<S::RepoStorageError>>
+where
+    D: 'a + CryptoDigest + CryptoHash + Send,
+    S: RepoStorage<D>,
+{
+    let mut file_change_vecs = HashMap::new();
+    for repo_diff in repo_diffs {
+        for (path, file_change) in repo_diff.changeset.iter() {
+            let entry = file_change_vecs.entry(path.clone()).or_insert(vec![]);
+            entry.push(file_change);
+        }
+    }
+
+    let futures = file_change_vecs
+        .iter()
+        .map(|(path, file_changes)| async move {
+            let combined_change = combine_file_changes(file_changes.deref(), storage).await;
+            combined_change.map(|file_change_option| (path, file_change_option))
+        });
+
+    let combined_changes = try_join_all(futures).await?;
+    let changeset: DashMap<RepoPath, FileChange<D>> = combined_changes
+        .into_iter()
+        .filter_map(|(path, file_change_option)| {
+            file_change_option.map(|file_change| (path.clone(), file_change))
+        })
+        .collect();
+    let repo_diff = RepoDiff {
+        changeset: changeset.into_read_only(),
+    };
+
+    let repo_diff_digest = repo_diff.to_digest();
+    <S as Storage<RepoDiffRef<D>, RepoDiff<D>>>::store(storage, &repo_diff_digest, &repo_diff)
+        .await
+        .map_err(|err| FileChangeError::StorageError(StorageError::InternalError(err)))?;
+
+    Ok(repo_diff_digest)
 }
 
 #[cfg(test)]
