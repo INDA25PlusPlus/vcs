@@ -8,9 +8,9 @@ use crate::fs::map_ops::{
 };
 use crate::fs::path::RepoPath;
 use crate::fs::{
-    FileSystem, FileSystemError, FileSystemReadError, FileSystemReadResult, FileSystemResult,
-    FileSystemWriteError, FileSystemWriteResult, FileTree, update_create_file_change,
-    update_delete_file_change, update_modify_file_change,
+    FileSystem, FileSystemReadError, FileSystemReadResult, FileSystemWriteError,
+    FileSystemWriteResult, FileTree, update_create_file_change, update_delete_file_change,
+    update_modify_file_change,
 };
 use crate::repo::PendingChanges;
 use crate::repo::repo_storage::RepoStorage;
@@ -20,10 +20,10 @@ use futures::future::try_join_all;
 use std::convert::Infallible;
 use std::fmt::Debug;
 use std::ops::Deref;
-use tokio::sync::RwLock;
+use tokio::sync::Mutex;
 
 pub struct MemoryFileSystem {
-    files: RwLock<DashMap<RepoPath, MemoryFileSystemEntry>>,
+    files: Mutex<DashMap<RepoPath, MemoryFileSystemEntry>>,
 }
 
 #[derive(Clone, Debug)]
@@ -35,42 +35,13 @@ struct MemoryFileSystemEntry {
 impl MemoryFileSystem {
     pub fn new() -> MemoryFileSystem {
         MemoryFileSystem {
-            files: RwLock::new(DashMap::new()),
+            files: Mutex::new(DashMap::new()),
         }
     }
 }
 
 impl FileSystem for MemoryFileSystem {
     type Error = Infallible;
-
-    async fn read(&self, path: &RepoPath) -> FileSystemResult<File, Self::Error> {
-        self.files
-            .read()
-            .await
-            .get(path)
-            .map(|entry| entry.file.clone())
-            .ok_or(FileSystemError::MissingFile)
-    }
-
-    async fn write(&self, path: &RepoPath, file: &File) -> Result<(), Self::Error> {
-        self.files.read().await.insert(
-            path.clone(),
-            MemoryFileSystemEntry {
-                file: file.clone(),
-                dirty: true,
-            },
-        );
-        Ok(())
-    }
-
-    async fn delete(&self, path: &RepoPath) -> FileSystemResult<(), Self::Error> {
-        self.files
-            .read()
-            .await
-            .remove(path)
-            .ok_or(FileSystemError::MissingFile)?;
-        Ok(())
-    }
 
     async fn update_pending_changes<D, P, S>(
         &self,
@@ -85,7 +56,7 @@ impl FileSystem for MemoryFileSystem {
         P: DiffPolicy,
         S: RepoStorage<D>,
     {
-        let mut files = self.files.write().await;
+        let mut files = self.files.lock().await;
 
         let PendingChanges(RepoDiff { changeset }) = pending_changes;
         let changeset_rw = DashMapGuard::new(changeset);
@@ -127,7 +98,7 @@ impl FileSystem for MemoryFileSystem {
         D: CryptoDigest + CryptoHash + Send + Eq,
         S: RepoStorage<D>,
     {
-        let files = self.files.read().await;
+        let files = self.files.lock().await;
         let PendingChanges(RepoDiff { changeset }) = pending_changes;
 
         // regardless of if head changed, delete all files that don't exist on head and are not
@@ -410,7 +381,7 @@ mod tests {
             let file_digest = file.to_digest();
             let path = RepoPath::try_from(path).unwrap();
             storage.store(&file_digest, file.deref()).await.unwrap();
-            fs.files.read().await.insert(
+            fs.files.lock().await.insert(
                 path.clone(),
                 MemoryFileSystemEntry {
                     file: file.deref().clone(),
@@ -465,7 +436,7 @@ mod tests {
 
                 for (path, file, dirty) in files {
                     let path = RepoPath::try_from(*path).unwrap();
-                    fs.files.read().await.insert(
+                    fs.files.lock().await.insert(
                         path,
                         MemoryFileSystemEntry {
                             file: file.clone(),
