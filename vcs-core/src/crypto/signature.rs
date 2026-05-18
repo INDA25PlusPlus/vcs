@@ -55,7 +55,8 @@ impl<D: CryptoDigest> SignedDigest<D> {
 
 impl<D: CryptoDigest> CryptoHash for SignedDigest<D> {
     fn crypto_hash<OutD: CryptoDigest, H: CryptoHasher<Output = OutD>>(&self, state: &mut H) {
-        todo!()
+        self.public_key.as_ref().crypto_hash(state);
+        self.signature.as_ref().crypto_hash(state);
     }
 }
 
@@ -79,6 +80,9 @@ impl<'de, D: CryptoDigest> serde::Deserialize<'de> for SignedDigest<D> {
 
 impl<D: CryptoDigest> Debug for SignedDigest<D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        todo!()
+        f.debug_struct("SignedDigest")
+            .field("public_key", &self.public_key)
+            .field("signature", &self.signature.as_ref())
+            .finish()
     }
 }
