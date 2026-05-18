@@ -3,7 +3,7 @@ use crate::diff::repo_diff::{RepoDiff, RepoDiffRef};
 use crate::fs::file::{File, FileDiff, FileDiffRef, FileRef};
 use crate::repo::repo_storage::RepoStorage;
 use crate::repo::{PendingChanges, StagedChanges};
-use crate::revision::{RevisionHeader, RevisionId, RevisionMetadata};
+use crate::revision::{RevisionHeader, RevisionMetadata, RevisionRef};
 use crate::storage::{SingletonStorage, Storage, StorageError, StorageResult};
 use std::convert::Infallible;
 use std::hash::Hash;
@@ -93,11 +93,11 @@ macro_rules! memory_repo_storage {
 }
 
 memory_repo_storage! {
-    head: MemoryStorage<(), RevisionId<D>>,
-    revision_headers: MemoryStorage<RevisionId<D>, RevisionHeader<D>>,
-    revision_metadatas: MemoryStorage<RevisionId<D>, RevisionMetadata<D>>,
-    pending_changes: MemoryStorage<RevisionId<D>, PendingChanges<D>>,
-    staged_changes: MemoryStorage<RevisionId<D>, StagedChanges<D>>,
+    head: MemoryStorage<(), RevisionRef<D>>,
+    revision_headers: MemoryStorage<RevisionRef<D>, RevisionHeader<D>>,
+    revision_metadatas: MemoryStorage<RevisionRef<D>, RevisionMetadata<D>>,
+    pending_changes: MemoryStorage<RevisionRef<D>, PendingChanges<D>>,
+    staged_changes: MemoryStorage<RevisionRef<D>, StagedChanges<D>>,
     repo_diffs: MemoryStorage<RepoDiffRef<D>, RepoDiff<D>>,
     files: MemoryStorage<FileRef<D>, File>,
     file_diffs: MemoryStorage<FileDiffRef<D>, FileDiff>,
