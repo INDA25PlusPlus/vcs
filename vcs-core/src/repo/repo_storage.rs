@@ -1,13 +1,13 @@
 use crate::crypto::digest::{CryptoDigest, CryptoHash};
 use crate::diff::repo_diff::{RepoDiff, RepoDiffRef};
 use crate::fs::file::{File, FileDiff, FileDiffRef, FileRef};
-use crate::repo::{PendingChanges, StagedChanges};
+use crate::repo::{Head, PendingChanges, StagedChanges};
 use crate::revision::{RevisionHeader, RevisionMetadata, RevisionRef};
 use crate::storage::Storage;
 use std::error::Error;
 
 pub trait RepoStorage<D: CryptoDigest + CryptoHash>:
-    Storage<(), RevisionRef<D>, Error = Self::RepoStorageError>
+    Storage<(), Head<D>, Error = Self::RepoStorageError>
     + Storage<RevisionRef<D>, RevisionHeader<D>, Error = Self::RepoStorageError>
     + Storage<RevisionRef<D>, RevisionMetadata<D>, Error = Self::RepoStorageError>
     + Storage<RevisionRef<D>, PendingChanges<D>, Error = Self::RepoStorageError>

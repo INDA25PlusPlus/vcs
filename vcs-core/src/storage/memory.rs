@@ -2,7 +2,7 @@ use crate::crypto::digest::{CryptoDigest, CryptoHash};
 use crate::diff::repo_diff::{RepoDiff, RepoDiffRef};
 use crate::fs::file::{File, FileDiff, FileDiffRef, FileRef};
 use crate::repo::repo_storage::RepoStorage;
-use crate::repo::{PendingChanges, StagedChanges};
+use crate::repo::{Head, PendingChanges, StagedChanges};
 use crate::revision::{RevisionHeader, RevisionMetadata, RevisionRef};
 use crate::storage::{SingletonStorage, Storage, StorageError, StorageResult};
 use std::convert::Infallible;
@@ -93,7 +93,7 @@ macro_rules! memory_repo_storage {
 }
 
 memory_repo_storage! {
-    head: MemoryStorage<(), RevisionRef<D>>,
+    head: MemoryStorage<(), Head<D>>,
     revision_headers: MemoryStorage<RevisionRef<D>, RevisionHeader<D>>,
     revision_metadatas: MemoryStorage<RevisionRef<D>, RevisionMetadata<D>>,
     pending_changes: MemoryStorage<RevisionRef<D>, PendingChanges<D>>,

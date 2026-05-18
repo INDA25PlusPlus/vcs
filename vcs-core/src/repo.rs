@@ -71,7 +71,7 @@ where
     S: RepoStorage<D>,
     S::RepoStorageError: Error + Send,
 {
-    head: MutableCache<(), RevisionRef<D>, S>,
+    head: MutableCache<(), Head<D>, S>,
 
     revision_headers: MutableCache<RevisionRef<D>, RevisionHeader<D>, S>,
     revision_metadatas: MutableCache<RevisionRef<D>, RevisionMetadata<D>, S>,
@@ -137,7 +137,7 @@ where
         let repo_diffs = FrozenCache::new(storage.clone());
 
         let result: Result<_, S::RepoStorageError> = tokio::try_join!(
-            head.set(&(), init_rev_digest.clone()),
+            head.set(&(), Head(init_rev_digest.clone())),
             revision_headers.set(&init_rev_digest, init_rev_header),
             revision_metadatas.set(&init_rev_digest, init_rev_meta),
             repo_diffs.insert(&init_repo_diff_ref, init_repo_diff),
@@ -172,7 +172,7 @@ where
     pub async fn head(&self) -> RepoResult<RevisionRef<D>, S::RepoStorageError> {
         let head = self.head.get(&(), async |v| v.clone()).await?;
 
-        Ok(head)
+        Ok(head.0)
     }
 
     pub async fn set_head(
@@ -477,12 +477,16 @@ mod tests {
     async fn repo_with_head() -> (Repo<Digest, TestStorage>, Digest) {
         // Initialize manually to avoid hitting todo forn ow
         let storage = Arc::new(TestStorage::new());
-        let head = blake3::hash(b"head");
-        <TestStorage as crate::storage::Storage<(), Digest>>::store(storage.as_ref(), &(), &head)
-            .await
-            .unwrap();
+        let head = Head(blake3::hash(b"head"));
+        <TestStorage as crate::storage::Storage<(), Head<Digest>>>::store(
+            storage.as_ref(),
+            &(),
+            &head,
+        )
+        .await
+        .unwrap();
         let repo = Repo::load(storage).await;
-        (repo, head)
+        (repo, head.0)
     }
 
     fn pending_changes(

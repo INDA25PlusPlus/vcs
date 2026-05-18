@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use crate::{App, Digest, short_digest};
 use vcs_core::crypto::digest::CryptoDigest;
+use vcs_core::repo::Head;
 use vcs_core::revision::{FORMAT_VERSION, RevisionHeader, RevisionMetadata};
 use vcs_core::storage::Storage as CoreStorage;
 use vcs_core::storage::memory::MemoryRepoStorage;
@@ -41,7 +42,7 @@ async fn log_walks_revision_parents_from_head() {
 }
 
 async fn store_head(app: &App, head: Digest) {
-    <TestStorage as CoreStorage<(), Digest>>::store(app.storage.as_ref(), &(), &head)
+    <TestStorage as CoreStorage<(), Head<Digest>>>::store(app.storage.as_ref(), &(), &Head(head))
         .await
         .unwrap();
 }
