@@ -79,7 +79,8 @@ impl<D: CryptoDigest + CryptoHash> Patch<D> {
 
 impl<D: CryptoDigest + CryptoHash> CryptoHash for Patch<D> {
     fn crypto_hash<OutD: CryptoDigest, H: CryptoHasher<Output = OutD>>(&self, state: &mut H) {
-        todo!()
+        self.repo_diff.crypto_hash(state);
+        self.author.crypto_hash(state);
     }
 }
 
