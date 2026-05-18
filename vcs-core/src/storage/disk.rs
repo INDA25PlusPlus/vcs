@@ -1,12 +1,12 @@
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
-use vcs_core::crypto::digest::{CryptoDigest, CryptoHash};
-use vcs_core::diff::repo_diff::RepoDiff;
-use vcs_core::fs::file::{File, FileDiff};
-use vcs_core::repo::{Head, PendingChanges, StagedChanges};
-use vcs_core::revision::{RevisionHeader, RevisionMetadata};
-use vcs_core::storage::{Storage, StorageError, StorageResult};
+use crate::crypto::digest::{CryptoDigest, CryptoHash};
+use crate::diff::repo_diff::RepoDiff;
+use crate::fs::file::{File, FileDiff};
+use crate::repo::{Head, PendingChanges, StagedChanges};
+use crate::revision::{RevisionHeader, RevisionMetadata};
+use crate::storage::{Storage, StorageError, StorageResult};
 
 pub struct DiskStorage {
     pub base_path: Box<Path>,

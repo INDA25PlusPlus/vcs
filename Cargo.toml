@@ -1,5 +1,5 @@
 [workspace]
-members = ["vcs-cli", "vcs-core", "vcs-core/crypto-hash-derive", "vcs-storage-impl"]
+members = ["vcs-cli", "vcs-core", "vcs-core/crypto-hash-derive"]
 resolver = "3"
 
 [workspace.dependencies]

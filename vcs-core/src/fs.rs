@@ -1,3 +1,4 @@
+pub mod disk;
 pub mod file;
 pub mod map_ops;
 pub mod memory;
