@@ -7,7 +7,7 @@
 //! has been either pushed to or pulled from the upstream. Furthermore, a committed revision is
 //! considered permanent and can not be rebased, squashed or otherwise edited.
 
-use crate::crypto::digest::{CryptoDigest, CryptoHash, CryptoHasher};
+use crate::crypto::digest::{CryptoDigest, CryptoHash};
 use crate::crypto::signature::SignContext;
 use crate::diff::repo_diff::{RepoDiff, RepoDiffRef};
 use crate::revision::author::{Author, AuthorSignature, Committer};
@@ -27,7 +27,7 @@ pub const FORMAT_VERSION: FormatVersion = 0;
 
 pub const INITIAL_REVISION_MESSAGE: &str = "Initial revision";
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, CryptoHash)]
 pub struct Patch<D: CryptoDigest + CryptoHash> {
     repo_diff: RepoDiffRef<D>,
     author: Author<D>,
@@ -50,7 +50,7 @@ pub struct RevisionMetadata<D: CryptoDigest + CryptoHash> {
 /// loading of the most significant fields `repo_diff` and `parent`.
 ///
 /// A value of this type is guaranteed to be a valid revision with valid hashes and signatures.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, CryptoHash)]
 pub struct Revision<D: CryptoDigest + CryptoHash> {
     header: RevisionHeader<D>,
     metadata: RevisionMetadata<D>,
@@ -73,13 +73,6 @@ impl<D: CryptoDigest + CryptoHash> Patch<D> {
                 signature: AuthorSignature::Signature(signature),
             },
         }
-    }
-}
-
-impl<D: CryptoDigest + CryptoHash> CryptoHash for Patch<D> {
-    fn crypto_hash<OutD: CryptoDigest, H: CryptoHasher<Output = OutD>>(&self, state: &mut H) {
-        self.repo_diff.crypto_hash(state);
-        self.author.crypto_hash(state);
     }
 }
 
@@ -185,12 +178,5 @@ where
         let mut cloned = self.clone();
         cloned.uncommit();
         cloned
-    }
-}
-
-impl<D: CryptoDigest + CryptoHash> CryptoHash for Revision<D> {
-    fn crypto_hash<OutD: CryptoDigest, H: CryptoHasher<Output = OutD>>(&self, state: &mut H) {
-        self.header.crypto_hash(state);
-        self.metadata.crypto_hash(state);
     }
 }
