@@ -10,7 +10,7 @@ use crate::fs::map_ops::DashMapGuard;
 use crate::fs::path::RepoPath;
 use crate::repo::repo_storage::RepoStorage;
 use crate::revision::timestamp::Timestamp;
-use crate::revision::{Patch, Revision, RevisionHeader, RevisionId, RevisionMetadata};
+use crate::revision::{Patch, Revision, RevisionHeader, RevisionMetadata, RevisionRef};
 use crate::storage::cache::MutableCache;
 use crate::storage::{StorageError, cache::FrozenCache};
 use futures::try_join;
@@ -19,7 +19,7 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 #[derive(Clone, CryptoHash, Debug)]
-pub struct Head<D: CryptoDigest + CryptoHash>(pub RevisionId<D>);
+pub struct Head<D: CryptoDigest + CryptoHash>(pub RevisionRef<D>);
 
 #[derive(Clone, CryptoHash, Debug)]
 pub struct PendingChanges<D: CryptoDigest + CryptoHash>(pub RepoDiff<D>);
@@ -71,13 +71,13 @@ where
     S: RepoStorage<D>,
     S::RepoStorageError: Error + Send,
 {
-    head: MutableCache<(), RevisionId<D>, S>,
+    head: MutableCache<(), RevisionRef<D>, S>,
 
-    revision_headers: MutableCache<RevisionId<D>, RevisionHeader<D>, S>,
-    revision_metadatas: MutableCache<RevisionId<D>, RevisionMetadata<D>, S>,
+    revision_headers: MutableCache<RevisionRef<D>, RevisionHeader<D>, S>,
+    revision_metadatas: MutableCache<RevisionRef<D>, RevisionMetadata<D>, S>,
 
-    pending_changes: MutableCache<RevisionId<D>, PendingChanges<D>, S>,
-    staged_changes: MutableCache<RevisionId<D>, StagedChanges<D>, S>,
+    pending_changes: MutableCache<RevisionRef<D>, PendingChanges<D>, S>,
+    staged_changes: MutableCache<RevisionRef<D>, StagedChanges<D>, S>,
 
     repo_diffs: FrozenCache<D, RepoDiff<D>, S>,
     file_diffs: FrozenCache<D, FileDiff, S>,
@@ -169,7 +169,7 @@ where
         }
     }
 
-    pub async fn head(&self) -> RepoResult<RevisionId<D>, S::RepoStorageError> {
+    pub async fn head(&self) -> RepoResult<RevisionRef<D>, S::RepoStorageError> {
         let head = self.head.get(&(), async |v| v.clone()).await?;
 
         Ok(head)
@@ -177,14 +177,14 @@ where
 
     pub async fn set_head(
         &self,
-        _revision_id: RevisionId<D>,
+        _revision_id: RevisionRef<D>,
     ) -> RepoResult<(), S::RepoStorageError> {
         todo!("set HEAD and update checkout state in core")
     }
 
     async fn pending_changes_at(
         &self,
-        head: &RevisionId<D>,
+        head: &RevisionRef<D>,
     ) -> RepoResult<PendingChanges<D>, S::RepoStorageError> {
         match self
             .pending_changes
@@ -199,7 +199,7 @@ where
 
     async fn staged_changes_at(
         &self,
-        head: &RevisionId<D>,
+        head: &RevisionRef<D>,
     ) -> RepoResult<StagedChanges<D>, S::RepoStorageError> {
         match self
             .staged_changes
@@ -214,7 +214,7 @@ where
 
     async fn update_staged_changes_at(
         &self,
-        head: &RevisionId<D>,
+        head: &RevisionRef<D>,
         f: impl AsyncFnOnce(&StagedChanges<D>) -> StagedChanges<D>,
     ) -> RepoResult<(), S::RepoStorageError> {
         Ok(self
@@ -290,7 +290,7 @@ where
     #[allow(clippy::diverging_sub_expression)]
     pub async fn create_revision(
         &self,
-        parent: RevisionId<D>,
+        parent: RevisionRef<D>,
         patches: Box<[Patch<D>]>,
     ) -> RepoResult<Revision<D>, S::RepoStorageError> {
         let repo_diff = todo!("combine patch repo diffs");
@@ -301,7 +301,7 @@ where
 
     pub async fn get_revision_header(
         &self,
-        revision_id: &RevisionId<D>,
+        revision_id: &RevisionRef<D>,
     ) -> RepoResult<RevisionHeader<D>, S::RepoStorageError> {
         let header = self
             .revision_headers
@@ -313,7 +313,7 @@ where
 
     pub async fn get_revision_metadata(
         &self,
-        revision_id: &RevisionId<D>,
+        revision_id: &RevisionRef<D>,
     ) -> RepoResult<RevisionMetadata<D>, S::RepoStorageError> {
         let metadata = self
             .revision_metadatas
@@ -326,7 +326,7 @@ where
     pub async fn insert_revision(
         &self,
         revision: Revision<D>,
-    ) -> RepoResult<RevisionId<D>, S::RepoStorageError> {
+    ) -> RepoResult<RevisionRef<D>, S::RepoStorageError> {
         let header = revision.header();
 
         // Verify parent exists in storage
@@ -357,7 +357,7 @@ where
         author_message: Box<str>,
         committer_message: Box<str>,
         sign_context: SignContext<'_>,
-    ) -> RepoResult<RevisionId<D>, S::RepoStorageError> {
+    ) -> RepoResult<RevisionRef<D>, S::RepoStorageError> {
         // Load the staged diff for the current head.
         let old_head = self.head().await?;
 

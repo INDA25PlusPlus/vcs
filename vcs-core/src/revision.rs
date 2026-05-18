@@ -18,7 +18,7 @@ use std::hash::Hash;
 pub mod author;
 pub mod timestamp;
 
-pub type RevisionId<H> = H;
+pub type RevisionRef<D> = D;
 
 pub type FormatVersion = u16;
 
@@ -36,7 +36,7 @@ pub struct Patch<D: CryptoDigest + CryptoHash> {
 #[derive(Clone, Debug, CryptoHash)]
 pub struct RevisionHeader<D: CryptoDigest + CryptoHash> {
     pub repo_diff: RepoDiffRef<D>,
-    pub parent: RevisionId<D>,
+    pub parent: RevisionRef<D>,
 }
 
 #[derive(Clone, Debug, CryptoHash)]
@@ -109,7 +109,7 @@ where
     }
 
     pub fn from_parts(
-        parent: RevisionId<D>,
+        parent: RevisionRef<D>,
         repo_diff: RepoDiffRef<D>,
         patches: Box<[Patch<D>]>,
     ) -> Revision<D> {
