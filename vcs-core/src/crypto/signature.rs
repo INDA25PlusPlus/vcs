@@ -123,3 +123,20 @@ impl<D: CryptoDigest> Debug for SignedDigest<D> {
             .finish()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn serde_round_trips_signed_digest() {
+        let key_pair = Ed25519KeyPair::generate().unwrap();
+        let hash = blake3::hash(b"message");
+        let signed = SignedDigest::sign(&hash, &key_pair);
+
+        let encoded = postcard::to_allocvec(&signed).unwrap();
+        let decoded: SignedDigest<blake3::Hash> = postcard::from_bytes(&encoded).unwrap();
+
+        decoded.verify(&hash).unwrap();
+    }
+}
