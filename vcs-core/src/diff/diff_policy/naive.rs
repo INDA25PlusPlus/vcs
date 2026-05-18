@@ -1,6 +1,6 @@
-use crate::diff::{hunk::Hunk, hunk_collection::HunkCollection};
-
 use super::DiffPolicy;
+use crate::diff::hunk::Hunk;
+use crate::diff::hunk::HunkCollection;
 
 /// Trivial policy that replaces the whole file with a single hunk.
 pub struct NaiveDiff;

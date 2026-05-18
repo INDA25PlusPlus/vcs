@@ -1,4 +1,4 @@
-use crate::diff::hunk_collection::HunkCollection;
+use crate::diff::hunk::HunkCollection;
 
 /// Builds an initial [`HunkCollection`] from source and destination bytes.
 pub trait DiffPolicy {

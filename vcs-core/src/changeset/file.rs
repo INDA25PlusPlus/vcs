@@ -1,5 +1,5 @@
 use crate::crypto::digest::{CryptoDigest, CryptoHash};
-use crate::diff::hunk_collection::{HunkCollection, HunkCollectionError};
+use crate::diff::hunk::{HunkCollection, HunkCollectionError};
 use crate::repo::repo_storage::RepoStorage;
 use crate::storage::{Storage, StorageError};
 use crypto_hash_derive::CryptoHash;

@@ -8,7 +8,7 @@ use crate::changeset::file::File;
 use crate::changeset::file::{FileChange, FileDiff, FileRef};
 use crate::crypto::digest::{CryptoDigest, CryptoHash};
 use crate::diff::diff_policy::DiffPolicy;
-use crate::diff::hunk_collection::{HunkCollection, HunkCollectionError};
+use crate::diff::hunk::{HunkCollection, HunkCollectionError};
 use crate::fs::map_ops::replace_or_insert;
 use crate::repo::PendingChanges;
 use crate::repo::repo_storage::RepoStorage;
