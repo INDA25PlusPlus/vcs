@@ -1,5 +1,5 @@
 use crate::error::CliError;
-use crate::{App, Command};
+use crate::{App, AppStorage, Command};
 
 mod checkout;
 mod commit;
@@ -11,7 +11,10 @@ mod status;
 mod tests;
 mod unstage;
 
-pub(crate) async fn run(app: &App, command: Command) -> Result<(), CliError> {
+pub(crate) async fn run<S>(app: &App<S>, command: Command) -> Result<(), CliError>
+where
+    S: AppStorage,
+{
     match command {
         Command::Init => init::run(app).await,
         Command::Status => status::run(app).await,

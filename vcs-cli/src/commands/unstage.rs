@@ -1,10 +1,13 @@
 use std::path::PathBuf;
 
-use crate::App;
 use crate::error::CliError;
+use crate::{App, AppStorage};
 use vcs_core::fs::path::RepoPath;
 
-pub async fn run(app: &App, paths: &[PathBuf]) -> Result<(), CliError> {
+pub async fn run<S>(app: &App<S>, paths: &[PathBuf]) -> Result<(), CliError>
+where
+    S: AppStorage,
+{
     let paths = paths
         .iter()
         .map(|path| {
