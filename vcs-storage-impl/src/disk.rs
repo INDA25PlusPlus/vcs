@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::marker::PhantomData;
-use std::path::PathBuf;
+use std::path::Path;
 
 use vcs_core::crypto::digest::{CryptoDigest, CryptoHash};
 use vcs_core::diff::repo_diff::{RepoDiff, RepoDiffRef};
@@ -17,16 +16,14 @@ use vcs_core::revision::{
 use vcs_core::storage::{Storage, StorageError, StorageResult};
 use std::error::Error;
 
-pub struct DiskStorage<K, V> {
-    pub base_path: PathBuf,
-    _phantom_data: PhantomData<(K, V)>,
+pub struct DiskStorage {
+    pub base_path: Box<Path>,
 }
 
-impl<K, V> DiskStorage<K, V> {
-    pub fn new(base_path: PathBuf) -> Self {
+impl DiskStorage {
+    pub fn new(base_path: Box<Path>) -> Self {
         Self {
             base_path,
-            _phantom_data: PhantomData,
         }
     }
 }
@@ -44,7 +41,7 @@ impl From<std::io::Error> for DiskStorageError {
     }
 }
 
-impl<K, V> Storage<K, V> for DiskStorage<K, V>
+impl<K, V> Storage<K, V> for DiskStorage
 where
     K: CryptoDigest,
     V: Serialize + for<'de> Deserialize<'de> + DiskStorable,
@@ -60,7 +57,8 @@ where
         path.push(filename);
 
         // read bytes
-        let bytes = std::fs::read(&path)
+        let bytes = tokio::fs::read(&path)
+            .await
             .map_err(|e| StorageError::InternalError(DiskStorageError::Io(e)))?;
 
         // deserialize
@@ -84,10 +82,10 @@ where
         let bytes = postcard::to_allocvec(value).map_err(|_| DiskStorageError::Serialization)?;
 
         // ensure directory exists
-        std::fs::create_dir_all(&dir)?;
+        tokio::fs::create_dir_all(&dir).await?;
 
         // write file
-        std::fs::write(path, bytes)?;
+        tokio::fs::write(path, bytes).await?;
 
         Ok(())
     }
@@ -101,7 +99,7 @@ where
         path.push(filename);
 
         // delete file
-        std::fs::remove_file(path)?;
+        tokio::fs::remove_file(path).await?;
 
         Ok(())
     }
