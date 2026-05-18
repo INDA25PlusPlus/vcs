@@ -1,11 +1,12 @@
 use crypto_hash_derive::CryptoHash;
+use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Formatter};
 
 /// One contiguous edit in a file.
 ///
 /// A hunk replaces `len_before` bytes at a position with `content_after`.
 /// `offset` is stored relative to the previous hunk rather than as an absolute file index.
-#[derive(Clone, PartialEq, Eq, Default, CryptoHash)]
+#[derive(Clone, PartialEq, Eq, Default, CryptoHash, Serialize, Deserialize)]
 pub struct Hunk {
     /// Number of source bytes between the previous hunk and this one.
     ///

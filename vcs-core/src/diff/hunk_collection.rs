@@ -4,6 +4,7 @@ use crate::diff::{
 };
 use bytes::Bytes;
 use crypto_hash_derive::CryptoHash;
+use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use thiserror::Error;
 
@@ -11,7 +12,7 @@ use thiserror::Error;
 ///
 /// `HunkCollection` stores edits as hunks. This is the representation that should usually be persisted,
 /// hashed, and passed through the higher-level API.
-#[derive(Debug, Clone, PartialEq, Eq, Default, CryptoHash)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, CryptoHash, Serialize, Deserialize)]
 pub struct HunkCollection {
     pub hunks: Box<[Hunk]>,
 }

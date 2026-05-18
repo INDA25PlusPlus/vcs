@@ -1,4 +1,5 @@
 use crypto_hash_derive::CryptoHash;
+use serde::{Deserialize, Serialize};
 use std::ffi::OsStr;
 use std::fmt::{Display, Formatter};
 use std::path::{Component, Path, PathBuf};
@@ -15,14 +16,18 @@ compile_error!("Only target families 'unix' and 'windows' are supported!");
 /// - Length must be between 1 and 255 bytes, inclusive.
 /// - May not contain the null byte ('\0') or the slash symbol ('/').
 /// - May not be equal to '.' or '..'.
-#[derive(Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd, Hash, CryptoHash)]
+#[derive(
+    Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd, Hash, CryptoHash, Serialize, Deserialize,
+)]
 pub struct RepoPath {
     // todo more efficient representation
     components: Box<[RepoPathComponent]>,
 }
 
 /// Component of a [`RepoPath`] corresponding to a directory or file name.
-#[derive(Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd, Hash, CryptoHash)]
+#[derive(
+    Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd, Hash, CryptoHash, Serialize, Deserialize,
+)]
 pub struct RepoPathComponent {
     pub inner: Box<[u8]>,
 }

@@ -5,6 +5,8 @@ use crate::repo::repo_storage::RepoStorage;
 use crate::storage::{Storage, StorageError};
 use dashmap::{DashMap, ReadOnlyView};
 use futures::future::try_join_all;
+use serde::ser::SerializeMap;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::HashMap;
 use std::ops::Deref;
 
@@ -40,6 +42,39 @@ impl<D: CryptoDigest + CryptoHash> CryptoHash for RepoDiff<D> {
         let mut entries: Vec<_> = self.changeset.iter().collect();
         entries.sort_by_key(|(k, _v)| *k);
         entries.crypto_hash(state);
+    }
+}
+
+impl<D: CryptoDigest + CryptoHash> Serialize for RepoDiff<D>
+where
+    D: Serialize,
+{
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut map = serializer.serialize_map(Some(self.changeset.len()))?;
+
+        for (k, v) in self.changeset.iter() {
+            map.serialize_entry(k, v)?;
+        }
+
+        map.end()
+    }
+}
+
+impl<'de, D: CryptoDigest + CryptoHash> Deserialize<'de> for RepoDiff<D>
+where
+    D: Deserialize<'de>,
+{
+    fn deserialize<De>(deserializer: De) -> Result<Self, De::Error>
+    where
+        De: Deserializer<'de>,
+    {
+        let map = DashMap::deserialize(deserializer)?;
+        Ok(RepoDiff {
+            changeset: map.into_read_only(),
+        })
     }
 }
 
