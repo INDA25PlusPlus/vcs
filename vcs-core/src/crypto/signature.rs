@@ -32,28 +32,29 @@ impl<'key> From<&'key Ed25519KeyPair> for SignContext<'key> {
     }
 }
 
-/// Signature of a hash of type `H`
+/// Signature of a hash of type `D`
 #[derive(Clone)]
 pub struct SignedDigest<D: CryptoDigest> {
     public_key: aws_lc_rs::signature::UnparsedPublicKey<Box<[u8]>>,
-    signature: aws_lc_rs::signature::Signature,
+    signature: Box<[u8]>,
     _hash_type: PhantomData<D>,
 }
 
 impl<D: CryptoDigest> SignedDigest<D> {
-    /// Create a signature of `item` using a given key pair
+    /// Create a signature of `hash` using a given key pair
     pub fn sign(hash: &D, key_pair: &Ed25519KeyPair) -> SignedDigest<D> {
+        let signature = key_pair.sign(hash.bytes());
         SignedDigest {
             public_key: aws_lc_rs::signature::UnparsedPublicKey::new(
                 &aws_lc_rs::signature::ED25519,
                 key_pair.public_key().as_ref().into(),
             ),
-            signature: key_pair.sign(hash.bytes()),
+            signature: signature.as_ref().into(),
             _hash_type: PhantomData,
         }
     }
 
-    /// Verify that the signature matches `item`
+    /// Verify that the signature matches `hash`
     pub fn verify(&self, hash: &D) -> Result<(), aws_lc_rs::error::Unspecified> {
         self.public_key
             .verify(hash.bytes(), self.signature.as_ref())
@@ -72,7 +73,10 @@ impl<D: CryptoDigest> serde::Serialize for SignedDigest<D> {
     where
         S: Serializer,
     {
-        todo!()
+        serde::Serialize::serialize(
+            &(self.public_key.as_ref(), self.signature.as_ref()),
+            serializer,
+        )
     }
 }
 
