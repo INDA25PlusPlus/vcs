@@ -1,6 +1,6 @@
 use crate::crypto::digest::{CryptoDigest, CryptoHash, CryptoHasher};
 use aws_lc_rs::rand::SystemRandom;
-use aws_lc_rs::signature::{Ed25519KeyPair, KeyPair};
+use aws_lc_rs::signature::{ED25519_PUBLIC_KEY_LEN, Ed25519KeyPair, KeyPair};
 use serde::{Deserializer, Serializer};
 use std::fmt::{Debug, Formatter};
 use std::marker::PhantomData;
@@ -10,6 +10,9 @@ pub fn generate_signing_key() -> Result<Ed25519KeyPair, aws_lc_rs::error::Unspec
     let pkcs8 = Ed25519KeyPair::generate_pkcs8(&random)?;
     Ok(Ed25519KeyPair::from_pkcs8(pkcs8.as_ref())?)
 }
+
+// aws-lc-rs exposes the public key length, but keeps the Ed25519 signature length private.
+const ED25519_SIGNATURE_LEN: usize = 64;
 
 #[derive(Copy, Clone)]
 pub struct SignContext<'key> {
@@ -85,7 +88,30 @@ impl<'de, D: CryptoDigest> serde::Deserialize<'de> for SignedDigest<D> {
     where
         De: Deserializer<'de>,
     {
-        todo!()
+        let (public_key, signature) =
+            <(Box<[u8]>, Box<[u8]>) as serde::Deserialize>::deserialize(deserializer)?;
+        if public_key.len() != ED25519_PUBLIC_KEY_LEN {
+            let expected = format!("a {ED25519_PUBLIC_KEY_LEN}-byte Ed25519 public key");
+            return Err(serde::de::Error::invalid_length(
+                public_key.len(),
+                &expected.as_str(),
+            ));
+        }
+        if signature.len() != ED25519_SIGNATURE_LEN {
+            let expected = format!("a {ED25519_SIGNATURE_LEN}-byte Ed25519 signature");
+            return Err(serde::de::Error::invalid_length(
+                signature.len(),
+                &expected.as_str(),
+            ));
+        }
+        Ok(SignedDigest {
+            public_key: aws_lc_rs::signature::UnparsedPublicKey::new(
+                &aws_lc_rs::signature::ED25519,
+                public_key,
+            ),
+            signature,
+            _hash_type: PhantomData,
+        })
     }
 }
 
