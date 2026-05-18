@@ -13,10 +13,10 @@ use crate::revision::timestamp::Timestamp;
 use crate::revision::{Patch, Revision, RevisionHeader, RevisionMetadata, RevisionRef};
 use crate::storage::cache::MutableCache;
 use crate::storage::{StorageError, cache::FrozenCache};
-use futures::try_join;
 use std::error::Error;
 use std::hash::Hash;
 use std::sync::Arc;
+use tokio::try_join;
 
 #[derive(Clone, CryptoHash, Debug)]
 pub struct Head<D: CryptoDigest + CryptoHash>(pub RevisionRef<D>);

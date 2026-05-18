@@ -1,6 +1,7 @@
 use thiserror::Error;
 
 pub mod cache;
+pub mod disk;
 pub mod memory;
 mod slotmap;
 

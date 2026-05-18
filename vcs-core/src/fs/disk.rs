@@ -1,3 +1,18 @@
+use crate::crypto::digest::{CryptoDigest, CryptoHash};
+use crate::diff::diff_policy::DiffPolicy;
+use crate::diff::repo_diff::RepoDiff;
+use crate::fs::file::{File, FileChange, FileRef};
+use crate::fs::map_ops::{
+    DashMapGuard, DashMapReadOnlyGuard, OuterJoinEntry, outer_join, remove_difference,
+};
+use crate::fs::path::{RepoPath, RepoPathComponent, RepoPathError};
+use crate::fs::{
+    FileSystem, FileSystemError, FileSystemReadError, FileSystemReadResult, FileSystemWriteResult,
+    FileTree, update_create_file_change, update_delete_file_change, update_modify_file_change,
+};
+use crate::repo::PendingChanges;
+use crate::repo::repo_storage::RepoStorage;
+use crate::storage::Storage;
 use cfg_if::cfg_if;
 use dashmap::{DashMap, ReadOnlyView};
 use futures::future::try_join_all;
@@ -7,21 +22,6 @@ use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 use tokio::sync::Mutex;
 use tokio::try_join;
-use vcs_core::crypto::digest::{CryptoDigest, CryptoHash};
-use vcs_core::diff::diff_policy::DiffPolicy;
-use vcs_core::diff::repo_diff::RepoDiff;
-use vcs_core::fs::file::{File, FileChange, FileRef};
-use vcs_core::fs::map_ops::{
-    DashMapGuard, DashMapReadOnlyGuard, OuterJoinEntry, outer_join, remove_difference,
-};
-use vcs_core::fs::path::{RepoPath, RepoPathComponent, RepoPathError};
-use vcs_core::fs::{
-    FileSystem, FileSystemError, FileSystemReadError, FileSystemReadResult, FileSystemWriteResult,
-    FileTree, update_create_file_change, update_delete_file_change, update_modify_file_change,
-};
-use vcs_core::repo::PendingChanges;
-use vcs_core::repo::repo_storage::RepoStorage;
-use vcs_core::storage::Storage;
 
 pub const IGNORED_PATH: &str = ".vcs";
 
