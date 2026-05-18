@@ -179,6 +179,49 @@ where
         // drop slot_guard
     }
 
+    /// Update the value at `key` with `f`, only if able to successfully store the updated value in
+    /// storage. Concurrent calls to this method are guaranteed to perform the load, update, store,
+    /// and cache replacement atomically. If `f` returns `Err`, that error is propagated and the
+    /// update is canceled.
+    ///
+    /// **Locking behavior:** Will deadlock if called from a closure passed into `get` or `update`
+    /// on the same `key`.
+    pub async fn try_update<E>(
+        &self,
+        key: &K,
+        f: impl AsyncFnOnce(&V) -> Result<V, E>,
+    ) -> StorageResult<Result<(), E>, S::Error> {
+        let mut slot_guard = self
+            .items
+            .write_or_insert_with(key, || MutableCacheEntry::Value(OnceCell::new()))
+            .await;
+
+        let result = match slot_guard.deref() {
+            MutableCacheEntry::Value(cell) => match cell.get() {
+                Some(value) => f(value).await,
+                None => {
+                    let value = self.storage.load(key).await?;
+                    f(&value).await
+                }
+            },
+            MutableCacheEntry::Tombstone => return Err(StorageError::MissingObject),
+        };
+
+        let updated_value = match result {
+            Ok(ok) => ok,
+            Err(err) => return Ok(Err(err)),
+        };
+
+        self.storage
+            .store(key, &updated_value)
+            .await
+            .map_err(StorageError::InternalError)?;
+
+        *slot_guard = MutableCacheEntry::Value(OnceCell::from(updated_value));
+        Ok(Ok(()))
+        // drop slot_guard
+    }
+
     /// Update the value at `key` with `f`, first creating a default value if the key is missing.
     /// The cached value is only replaced after the backing storage accepts the update.
     ///

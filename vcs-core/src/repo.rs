@@ -6,11 +6,17 @@ use crate::changeset::file::{FileChangeError, FileDiff};
 use crate::changeset::{Changeset, ChangesetRef, combine_changesets};
 use crate::crypto::digest::{CryptoDigest, CryptoHash};
 use crate::crypto::signature::SignContext;
-use crate::diff::diff_policy::DiffPolicy;
+<<<<<<< HEAD
+use crate::diff::diff_policy::{DiffPolicy, MyersDiff};
 use crate::diff::hunk::HunkCollectionError;
+use crate::fs;
+use crate::fs::disk::DiskFileSystem;
 use crate::fs::map_ops::DashMapGuard;
 use crate::fs::path::RepoPath;
-use crate::fs::{FileSystem, FileSystemReadError, FileTree, FileTreeError};
+use crate::fs::{
+    FileSystem, FileSystemReadError, FileSystemReadResult, FileSystemWriteResult, FileTree,
+    FileTreeError,
+};
 use crate::repo::repo_storage::RepoStorage;
 use crate::revision::timestamp::Timestamp;
 use crate::revision::{Patch, Revision, RevisionHeader, RevisionMetadata, RevisionRef};
@@ -19,6 +25,7 @@ use crate::storage::{StorageError, cache::FrozenCache};
 use serde::{Deserialize, Serialize};
 use std::error::Error;
 use std::hash::Hash;
+use std::ops::Deref;
 use std::sync::Arc;
 use tokio::try_join;
 
@@ -203,11 +210,72 @@ where
         Ok(head.0)
     }
 
-    pub async fn set_head(
-        &self,
-        _revision_id: RevisionRef<D>,
-    ) -> RepoResult<(), S::RepoStorageError> {
-        todo!("set HEAD and update checkout state in core")
+    pub async fn set_head(&self, rev: RevisionRef<D>) -> RepoResult<(), S::RepoStorageError> {
+        Ok(self.head.update(&(), async |_old_head| Head(rev)).await?)
+    }
+
+    pub async fn checkout(&self, rev: RevisionRef<D>) -> RepoResult<(), S::RepoStorageError> {
+        type P = MyersDiff;
+        type F = DiskFileSystem;
+
+        fn temp_fs() -> &'static mut F {
+            todo!()
+        }
+
+        fn temp_diff_policy() -> &'static P {
+            todo!()
+        }
+
+        async fn temp_traverse_construct_file_tree_naive<D: CryptoDigest + CryptoHash>(
+            rev: &RevisionRef<D>,
+        ) -> FileTree<D> {
+            todo!("naive traversal")
+        }
+
+        // troligtvis måste vi lagra en Arc<tokio::sync::Mutex<F>>, där F: FileSystem, i Repo, och
+        // sedan locka den här när vi vill komma åt fs. detta för att &mut krävs för att säkerställa
+        // safe concerrency inom FileSystem.
+        let fs = temp_fs();
+        let diff_policy = temp_diff_policy();
+
+        let old_head = self.head().await?;
+        let old_head_tree = temp_traverse_construct_file_tree_naive(&old_head).await;
+        let fs_result: FileSystemReadResult<(), fs::disk::Error, S::RepoStorageError> = self
+            .pending_changes
+            .try_update(&old_head, async |pending| {
+                let mut pending = pending.clone();
+                fs.update_pending_changes(
+                    diff_policy,
+                    self.storage.deref(),
+                    &old_head_tree,
+                    &mut pending,
+                    true,
+                )
+                .await?;
+                Ok(pending)
+            })
+            .await?;
+        match fs_result {
+            Ok(ok) => {}
+            Err(FileSystemReadError::FileSystemError(fs_err)) => todo!(),
+            Err(FileSystemReadError::LoadError(StorageError::InternalError(err))) => todo!(),
+            Err(FileSystemReadError::LoadError(StorageError::MissingObject)) => todo!(),
+            Err(FileSystemReadError::StoreError(storage_err)) => todo!(),
+        }
+
+        let new_head_tree = temp_traverse_construct_file_tree_naive(&rev).await;
+        let fs_result: FileSystemWriteResult<(), fs::disk::Error, S::RepoStorageError> = self
+            .pending_changes
+            .get(&rev, async |pending| {
+                fs.apply_pending_changes(self.storage.deref(), &new_head_tree, pending, true)
+                    .await
+            })
+            .await?;
+        match fs_result {
+            Ok(ok) => {}
+            Err(err) => todo!("på samma sätt"),
+        }
+        self.set_head(rev).await
     }
 
     async fn pending_changes_at(
