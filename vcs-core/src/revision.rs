@@ -7,9 +7,9 @@
 //! has been either pushed to or pulled from the upstream. Furthermore, a committed revision is
 //! considered permanent and can not be rebased, squashed or otherwise edited.
 
+use crate::changeset::{Changeset, ChangesetRef};
 use crate::crypto::digest::{CryptoDigest, CryptoHash};
 use crate::crypto::signature::SignContext;
-use crate::diff::repo_diff::{RepoDiff, RepoDiffRef};
 use crate::revision::author::{Author, AuthorSignature, Committer};
 use crate::revision::timestamp::Timestamp;
 use crypto_hash_derive::CryptoHash;
@@ -30,13 +30,13 @@ pub const INITIAL_REVISION_MESSAGE: &str = "Initial revision";
 
 #[derive(Clone, Debug, CryptoHash, Serialize, Deserialize)]
 pub struct Patch<D: CryptoDigest + CryptoHash> {
-    repo_diff: RepoDiffRef<D>,
+    changeset: ChangesetRef<D>,
     author: Author<D>,
 }
 
 #[derive(Clone, Debug, CryptoHash, Serialize, Deserialize)]
 pub struct RevisionHeader<D: CryptoDigest + CryptoHash> {
-    pub repo_diff: RepoDiffRef<D>,
+    pub changeset: ChangesetRef<D>,
     pub parent: RevisionRef<D>,
 }
 
@@ -48,7 +48,7 @@ pub struct RevisionMetadata<D: CryptoDigest + CryptoHash> {
 }
 
 /// In-memory representation of a revision, separated into a `header` and `metadata` for efficient
-/// loading of the most significant fields `repo_diff` and `parent`.
+/// loading of the most significant fields `changeset` and `parent`.
 ///
 /// A value of this type is guaranteed to be a valid revision with valid hashes and signatures.
 #[derive(Clone, Debug, CryptoHash)]
@@ -59,15 +59,15 @@ pub struct Revision<D: CryptoDigest + CryptoHash> {
 
 impl<D: CryptoDigest + CryptoHash> Patch<D> {
     pub fn new_signed(
-        repo_diff: RepoDiffRef<D>,
+        changeset: ChangesetRef<D>,
         message: Box<str>,
         timestamp: Timestamp,
         sign_context: SignContext,
     ) -> Patch<D> {
-        let pre_signed = D::generate(&(&repo_diff, &message, &timestamp));
+        let pre_signed = D::generate(&(&changeset, &message, &timestamp));
         let signature = sign_context.sign(&pre_signed);
         Patch {
-            repo_diff,
+            changeset,
             author: Author {
                 message,
                 timestamp,
@@ -82,10 +82,10 @@ where
     D: Eq + Hash + Send + Sync + Clone,
 {
     pub fn new_initial(sign_context: SignContext<'_>) -> Revision<D> {
-        let repo_diff = RepoDiff::<D>::empty();
+        let changeset = Changeset::<D>::empty();
         let mut rev = Revision {
             header: RevisionHeader {
-                repo_diff: D::generate(&repo_diff),
+                changeset: D::generate(&changeset),
                 parent: D::zero(),
             },
             metadata: RevisionMetadata {
@@ -104,11 +104,11 @@ where
 
     pub fn from_parts(
         parent: RevisionRef<D>,
-        repo_diff: RepoDiffRef<D>,
+        changeset: ChangesetRef<D>,
         patches: Box<[Patch<D>]>,
     ) -> Revision<D> {
         Revision {
-            header: RevisionHeader { repo_diff, parent },
+            header: RevisionHeader { changeset, parent },
             metadata: RevisionMetadata {
                 version: FORMAT_VERSION,
                 patches,

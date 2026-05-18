@@ -19,13 +19,12 @@
 //! 4. Materialize the final compacted stream back into a [`hunk_collection::HunkCollection`] with
 //!    [`operations::compact::Compact::into_hunk_collection`].
 //!
-//! [`crate::fs::file::FileDiff`] is the value type that should be stored, hashed, and exposed in
+//! [`crate::changeset::file::FileDiff`] is the value type that should be stored, hashed, and exposed in
 //! the higher-level API. The op-stream layer is the advanced representation used while transforming
-//! diffs. [`crate::fs::file::FileDiff`] represents a [`hunk_collection::HunkCollection`] + state
+//! diffs. [`crate::changeset::file::FileDiff`] represents a [`hunk_collection::HunkCollection`] + state
 //! change.
 
 pub mod diff_policy;
 pub mod hunk;
 pub mod hunk_collection;
 pub mod operations;
-pub mod repo_diff;

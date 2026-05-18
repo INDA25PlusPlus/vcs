@@ -2,10 +2,10 @@ pub mod repo_storage;
 
 use crypto_hash_derive::CryptoHash;
 
+use crate::changeset::file::FileDiff;
+use crate::changeset::{Changeset, ChangesetRef};
 use crate::crypto::digest::{CryptoDigest, CryptoHash};
 use crate::crypto::signature::SignContext;
-use crate::diff::repo_diff::{RepoDiff, RepoDiffRef};
-use crate::fs::file::FileDiff;
 use crate::fs::map_ops::DashMapGuard;
 use crate::fs::path::RepoPath;
 use crate::repo::repo_storage::RepoStorage;
@@ -23,10 +23,10 @@ use tokio::try_join;
 pub struct Head<D: CryptoDigest + CryptoHash>(pub RevisionRef<D>);
 
 #[derive(Clone, CryptoHash, Debug, Serialize, Deserialize)]
-pub struct PendingChanges<D: CryptoDigest + CryptoHash>(pub RepoDiff<D>);
+pub struct PendingChanges<D: CryptoDigest + CryptoHash>(pub Changeset<D>);
 
 #[derive(Clone, CryptoHash, Debug, Serialize, Deserialize)]
-pub struct StagedChanges<D: CryptoDigest + CryptoHash>(pub RepoDiff<D>);
+pub struct StagedChanges<D: CryptoDigest + CryptoHash>(pub Changeset<D>);
 
 impl<D: CryptoDigest + CryptoHash> PendingChanges<D> {
     pub fn empty() -> PendingChanges<D> {
@@ -50,13 +50,13 @@ impl<D: CryptoDigest + CryptoHash> StagedChanges<D> {
 
 impl<D: CryptoDigest + CryptoHash> Default for PendingChanges<D> {
     fn default() -> Self {
-        PendingChanges(RepoDiff::default())
+        PendingChanges(Changeset::default())
     }
 }
 
 impl<D: CryptoDigest + CryptoHash> Default for StagedChanges<D> {
     fn default() -> Self {
-        StagedChanges(RepoDiff::default())
+        StagedChanges(Changeset::default())
     }
 }
 
@@ -80,7 +80,7 @@ where
     pending_changes: MutableCache<RevisionRef<D>, PendingChanges<D>, S>,
     staged_changes: MutableCache<RevisionRef<D>, StagedChanges<D>, S>,
 
-    repo_diffs: FrozenCache<D, RepoDiff<D>, S>,
+    changesets: FrozenCache<D, Changeset<D>, S>,
     file_diffs: FrozenCache<D, FileDiff, S>,
 
     storage: Arc<S>,
@@ -126,8 +126,8 @@ where
         let init_rev: Revision<D> = Revision::new_initial(sign_context);
         // UGLY: This duplicates the empty diff created by `Revision::new_initial`.
         // The two must hash identically so the stored diff matches the initial revision header.
-        let init_repo_diff = RepoDiff::<D>::empty();
-        let init_repo_diff_ref = init_rev.header().repo_diff.clone();
+        let init_changeset = Changeset::<D>::empty();
+        let init_changeset_digest = init_rev.header().changeset.clone();
         let init_rev_digest: D = init_rev.to_digest();
 
         let (init_rev_header, init_rev_meta) = init_rev.into_parts();
@@ -135,13 +135,13 @@ where
         let head = MutableCache::new(storage.clone());
         let revision_headers = MutableCache::new(storage.clone());
         let revision_metadatas = MutableCache::new(storage.clone());
-        let repo_diffs = FrozenCache::new(storage.clone());
+        let changesets = FrozenCache::new(storage.clone());
 
         let result: Result<_, S::RepoStorageError> = tokio::try_join!(
             head.set(&(), Head(init_rev_digest.clone())),
             revision_headers.set(&init_rev_digest, init_rev_header),
             revision_metadatas.set(&init_rev_digest, init_rev_meta),
-            repo_diffs.insert(&init_repo_diff_ref, init_repo_diff),
+            changesets.insert(&init_changeset_digest, init_changeset),
         );
         result?;
 
@@ -151,7 +151,7 @@ where
             revision_metadatas,
             pending_changes: MutableCache::new(storage.clone()),
             staged_changes: MutableCache::new(storage.clone()),
-            repo_diffs,
+            changesets,
             file_diffs: FrozenCache::new(storage.clone()),
             storage,
         })
@@ -164,7 +164,7 @@ where
             revision_metadatas: MutableCache::new(storage.clone()),
             pending_changes: MutableCache::new(storage.clone()),
             staged_changes: MutableCache::new(storage.clone()),
-            repo_diffs: FrozenCache::new(storage.clone()),
+            changesets: FrozenCache::new(storage.clone()),
             file_diffs: FrozenCache::new(storage.clone()),
             storage,
         }
@@ -271,14 +271,14 @@ where
         Ok(())
     }
 
-    pub async fn insert_repo_diff(
+    pub async fn insert_changeset(
         &self,
-        repo_diff: RepoDiff<D>,
-    ) -> RepoResult<RepoDiffRef<D>, S::RepoStorageError> {
-        let repo_diff_ref = repo_diff.to_digest();
-        self.repo_diffs.insert(&repo_diff_ref, repo_diff).await?;
+        changeset: Changeset<D>,
+    ) -> RepoResult<ChangesetRef<D>, S::RepoStorageError> {
+        let changeset_digest = changeset.to_digest();
+        self.changesets.insert(&changeset_digest, changeset).await?;
 
-        Ok(repo_diff_ref)
+        Ok(changeset_digest)
     }
 
     #[allow(clippy::diverging_sub_expression)]
@@ -287,10 +287,10 @@ where
         parent: RevisionRef<D>,
         patches: Box<[Patch<D>]>,
     ) -> RepoResult<Revision<D>, S::RepoStorageError> {
-        let repo_diff = todo!("combine patch repo diffs");
-        let repo_diff_ref = self.insert_repo_diff(repo_diff).await?;
+        let changeset = todo!("combine patch repo diffs");
+        let changeset_digest = self.insert_changeset(changeset).await?;
 
-        Ok(Revision::from_parts(parent, repo_diff_ref, patches))
+        Ok(Revision::from_parts(parent, changeset_digest, patches))
     }
 
     pub async fn get_revision_header(
@@ -329,7 +329,7 @@ where
             .await?;
 
         // Verify repo diff exists in storage
-        self.repo_diffs.get(&header.repo_diff).await?;
+        self.changesets.get(&header.changeset).await?;
 
         // TODO: Check that `header.repo_diff` applies cleanly to `header.parent`.
 
@@ -381,18 +381,19 @@ where
             new_pending.retain(|k, _v| !staged.0.changeset.contains_key(k));
         }
 
-        let StagedChanges(repo_diff) = staged;
-        let repo_diff_ref = self.insert_repo_diff(repo_diff).await?;
+        let StagedChanges(changeset) = staged;
+        let changeset_digest = self.insert_changeset(changeset).await?;
 
         let timestamp = Timestamp::now();
         let patch = Patch::new_signed(
-            repo_diff_ref.clone(),
+            changeset_digest.clone(),
             author_message,
             timestamp,
             sign_context,
         );
 
-        let mut revision = Revision::from_parts(old_head.clone(), repo_diff_ref, Box::new([patch]));
+        let mut revision =
+            Revision::from_parts(old_head.clone(), changeset_digest, Box::new([patch]));
         revision.commit(committer_message, timestamp, sign_context);
         let revision_id = self.insert_revision(revision).await?;
 
@@ -420,8 +421,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::changeset::file::FileChange;
     use crate::crypto::signature::{SignContext, generate_signing_key};
-    use crate::fs::file::FileChange;
     use crate::storage::memory::MemoryRepoStorage;
     use dashmap::DashMap;
     use std::sync::Arc;
@@ -494,7 +495,7 @@ mod tests {
         changes: impl IntoIterator<Item = (RepoPath, FileChange<Digest>)>,
     ) -> PendingChanges<Digest> {
         let changes: DashMap<_, _> = changes.into_iter().collect();
-        PendingChanges(RepoDiff {
+        PendingChanges(Changeset {
             changeset: changes.into_read_only(),
         })
     }

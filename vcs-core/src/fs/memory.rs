@@ -1,7 +1,7 @@
+use crate::changeset::Changeset;
+use crate::changeset::file::{File, FileChange, FileDiff, FileDiffRef, FileRef};
 use crate::crypto::digest::{CryptoDigest, CryptoHash};
 use crate::diff::diff_policy::DiffPolicy;
-use crate::diff::repo_diff::RepoDiff;
-use crate::fs::file::{File, FileChange, FileDiff, FileDiffRef, FileRef};
 use crate::fs::map_ops::{
     DashMapGuard, DashMapReadOnlyGuard, OuterJoinEntry, outer_join, remove_difference,
     replace_or_insert,
@@ -55,7 +55,7 @@ impl FileSystem for MemoryFileSystem {
         P: DiffPolicy,
         S: RepoStorage<D>,
     {
-        let PendingChanges(RepoDiff { changeset }) = pending_changes;
+        let PendingChanges(Changeset { changeset }) = pending_changes;
         let changeset_rw = DashMapGuard::new(changeset);
 
         {
@@ -97,7 +97,7 @@ impl FileSystem for MemoryFileSystem {
         D: CryptoDigest + CryptoHash + Send + Eq,
         S: RepoStorage<D>,
     {
-        let PendingChanges(RepoDiff { changeset }) = pending_changes;
+        let PendingChanges(Changeset { changeset }) = pending_changes;
 
         // regardless of if head changed, delete all files that don't exist on head and are not
         // changed in pending changes
@@ -297,8 +297,8 @@ impl Default for MemoryFileSystem {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::changeset::file::File;
     use crate::diff::diff_policy::NaiveDiff;
-    use crate::fs::file::File;
     use crate::storage::memory::MemoryRepoStorage;
     use lazy_static::lazy_static;
 
@@ -428,7 +428,7 @@ mod tests {
                         expected.after.clone(),
                     )
                 });
-                let mut pending_changes = PendingChanges(RepoDiff {
+                let mut pending_changes = PendingChanges(Changeset {
                     changeset: changeset_before.collect::<DashMap<_, _>>().into_read_only(),
                 });
 

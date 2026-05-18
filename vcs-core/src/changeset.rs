@@ -1,5 +1,5 @@
+use crate::changeset::file::{FileChange, FileChangeError, combine_file_changes};
 use crate::crypto::digest::{CryptoDigest, CryptoHash, CryptoHasher};
-use crate::fs::file::{FileChange, FileChangeError, combine_file_changes};
 use crate::fs::path::RepoPath;
 use crate::repo::repo_storage::RepoStorage;
 use crate::storage::{Storage, StorageError};
@@ -10,17 +10,19 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::HashMap;
 use std::ops::Deref;
 
+pub mod file;
+
 /// A collection of changes made to a repository from one revision to another
 #[derive(Clone, Debug)]
-pub struct RepoDiff<D: CryptoDigest + CryptoHash> {
+pub struct Changeset<D: CryptoDigest + CryptoHash> {
     pub changeset: ReadOnlyView<RepoPath, FileChange<D>>,
 }
 
-pub type RepoDiffRef<D> = D;
+pub type ChangesetRef<D> = D;
 
-impl<D: CryptoDigest + CryptoHash> RepoDiff<D> {
-    pub(crate) fn empty() -> RepoDiff<D> {
-        RepoDiff::default()
+impl<D: CryptoDigest + CryptoHash> Changeset<D> {
+    pub(crate) fn empty() -> Changeset<D> {
+        Changeset::default()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -28,15 +30,15 @@ impl<D: CryptoDigest + CryptoHash> RepoDiff<D> {
     }
 }
 
-impl<D: CryptoDigest + CryptoHash> Default for RepoDiff<D> {
-    fn default() -> RepoDiff<D> {
-        RepoDiff {
+impl<D: CryptoDigest + CryptoHash> Default for Changeset<D> {
+    fn default() -> Changeset<D> {
+        Changeset {
             changeset: DashMap::new().into_read_only(),
         }
     }
 }
 
-impl<D: CryptoDigest + CryptoHash> CryptoHash for RepoDiff<D> {
+impl<D: CryptoDigest + CryptoHash> CryptoHash for Changeset<D> {
     fn crypto_hash<OutD: CryptoDigest, H: CryptoHasher<Output = OutD>>(&self, state: &mut H) {
         // sort is required for the hash to be deterministic
         let mut entries: Vec<_> = self.changeset.iter().collect();
@@ -45,7 +47,7 @@ impl<D: CryptoDigest + CryptoHash> CryptoHash for RepoDiff<D> {
     }
 }
 
-impl<D: CryptoDigest + CryptoHash> Serialize for RepoDiff<D>
+impl<D: CryptoDigest + CryptoHash> Serialize for Changeset<D>
 where
     D: Serialize,
 {
@@ -63,7 +65,7 @@ where
     }
 }
 
-impl<'de, D: CryptoDigest + CryptoHash> Deserialize<'de> for RepoDiff<D>
+impl<'de, D: CryptoDigest + CryptoHash> Deserialize<'de> for Changeset<D>
 where
     D: Deserialize<'de>,
 {
@@ -72,23 +74,23 @@ where
         De: Deserializer<'de>,
     {
         let map = DashMap::deserialize(deserializer)?;
-        Ok(RepoDiff {
+        Ok(Changeset {
             changeset: map.into_read_only(),
         })
     }
 }
 
-pub async fn combine_repo_diffs<'a, D, S>(
-    repo_diffs: &[RepoDiff<D>],
+pub async fn combine_changesets<'a, D, S>(
+    changesets: &[Changeset<D>],
     storage: &S,
-) -> Result<RepoDiffRef<D>, FileChangeError<S::RepoStorageError>>
+) -> Result<ChangesetRef<D>, FileChangeError<S::RepoStorageError>>
 where
     D: 'a + CryptoDigest + CryptoHash + Send,
     S: RepoStorage<D>,
 {
     let mut file_change_vecs = HashMap::new();
-    for repo_diff in repo_diffs {
-        for (path, file_change) in repo_diff.changeset.iter() {
+    for changeset in changesets {
+        for (path, file_change) in changeset.changeset.iter() {
             let entry = file_change_vecs.entry(path.clone()).or_insert(vec![]);
             entry.push(file_change);
         }
@@ -108,28 +110,28 @@ where
             file_change_option.map(|file_change| (path.clone(), file_change))
         })
         .collect();
-    let repo_diff = RepoDiff {
+    let changeset = Changeset {
         changeset: changeset.into_read_only(),
     };
 
-    let repo_diff_digest = repo_diff.to_digest();
-    <S as Storage<RepoDiffRef<D>, RepoDiff<D>>>::store(storage, &repo_diff_digest, &repo_diff)
+    let changeset_digest = changeset.to_digest();
+    <S as Storage<ChangesetRef<D>, Changeset<D>>>::store(storage, &changeset_digest, &changeset)
         .await
         .map_err(|err| FileChangeError::StorageError(StorageError::InternalError(err)))?;
 
-    Ok(repo_diff_digest)
+    Ok(changeset_digest)
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::diff::repo_diff::CryptoDigest;
-    use crate::diff::repo_diff::RepoDiff;
-    use crate::fs::file::FileChange;
+    use crate::changeset::Changeset;
+    use crate::changeset::file::FileChange;
+    use crate::crypto::digest::CryptoDigest;
     use crate::fs::path::RepoPath;
     use dashmap::DashMap;
 
     #[test]
-    fn repo_diff_crypto_hash() {
+    fn changeset_crypto_hash() {
         fn assert_digest(files: &[(&str, &[u8])], digest: &[u8]) {
             let expected = blake3::Hash::from_slice(digest).unwrap();
             let file_diffs = DashMap::new();
@@ -139,10 +141,10 @@ mod tests {
                     FileChange::Create(blake3::Hash::from_slice(file_digest).unwrap()),
                 );
             }
-            let repo_diff = RepoDiff {
+            let changeset = Changeset {
                 changeset: file_diffs.into_read_only(),
             };
-            let actual = <blake3::Hash as CryptoDigest>::generate(&repo_diff);
+            let actual = <blake3::Hash as CryptoDigest>::generate(&changeset);
             assert_eq!(actual, expected,);
         }
 
