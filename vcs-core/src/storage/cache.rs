@@ -2,7 +2,7 @@ use super::slotmap::SlotMap;
 use crate::storage::{Storage, StorageError, StorageResult};
 use elsa::sync::FrozenMap;
 use std::hash::Hash;
-use std::ops::{Deref, DerefMut};
+use std::ops::Deref;
 use std::sync::Arc;
 use tokio::sync::OnceCell;
 
@@ -92,8 +92,8 @@ where
     /// Get the value at `key` if it is loaded, or try to load it from storage. Access to the value
     /// is provided through `f`.
     ///
-    /// **Locking behavior:** Will deadlock if called from a closure passed into `get`, `get_mut`
-    /// or `update` on the same `key`.
+    /// **Locking behavior:** Will deadlock if called from a closure passed into `get` or `update`
+    /// on the same `key`.
     pub async fn get<R>(
         &self,
         key: &K,
@@ -122,108 +122,11 @@ where
         // drop slot_guard
     }
 
-    /// Get the value at `key` if it is loaded, or try to load it from storage. Access to the value
-    /// is provided through `f`.
-    ///
-    /// **Locking behavior:** Will deadlock if called from a closure passed into `get`, `get_mut`
-    /// or `update` on the same `key`.
-    pub async fn get_mut<R>(
-        &self,
-        key: &K,
-        f: impl AsyncFnOnce(&mut V) -> R,
-    ) -> StorageResult<R, S::Error> {
-        let mut slot_guard = self
-            .items
-            .write_or_insert_with(key, || MutableCacheEntry::Value(OnceCell::new()))
-            .await;
-
-        match slot_guard.deref_mut() {
-            MutableCacheEntry::Value(cell) => {
-                let _ = cell
-                    .get_or_try_init(async || {
-                        let value = self.storage.load(key).await?;
-                        Ok(value)
-                    })
-                    .await?;
-
-                let value = cell
-                    .get_mut()
-                    .expect("value was just initialized and cell is locked");
-
-                let return_value = f(value).await;
-
-                self.storage
-                    .store(key, value)
-                    .await
-                    .map_err(StorageError::InternalError)?;
-
-                Ok(return_value)
-            }
-            MutableCacheEntry::Tombstone => Err(StorageError::MissingObject),
-        }
-        // drop slot_guard
-    }
-
-    /// Get the value at `key` if it is loaded, or try to load it from storage. Access to the value
-    /// is provided through `f`. If the value is not present, it is first created using `default`.
-    ///
-    /// **Locking behavior:** Will deadlock if called from a closure passed into `get`, `get_mut`
-    /// or `update` on the same `key`.
-    pub async fn get_mut_or_else<R>(
-        &self,
-        key: &K,
-        f: impl AsyncFnOnce(&mut V) -> R,
-        default: impl AsyncFnOnce(&K) -> V,
-    ) -> StorageResult<R, S::Error> {
-        let mut slot_guard = self
-            .items
-            .write_or_insert_with(key, || MutableCacheEntry::Value(OnceCell::new()))
-            .await;
-
-        match slot_guard.deref_mut() {
-            MutableCacheEntry::Value(_) => {}
-            slot @ MutableCacheEntry::Tombstone => {
-                *slot = MutableCacheEntry::Value(OnceCell::new())
-            }
-        };
-
-        match slot_guard.deref_mut() {
-            MutableCacheEntry::Value(cell) => {
-                cell.get_or_try_init(async || {
-                    let value = match self.storage.load(key).await {
-                        Ok(value) => value,
-                        Err(StorageError::MissingObject) => default(key).await,
-                        Err(StorageError::InternalError(err)) => {
-                            return Err(StorageError::InternalError(err));
-                        }
-                    };
-                    Ok(value)
-                })
-                .await?;
-
-                let value = cell
-                    .get_mut()
-                    .expect("value was just initialized and cell is locked");
-
-                let return_value = f(value).await;
-
-                self.storage
-                    .store(key, value)
-                    .await
-                    .map_err(StorageError::InternalError)?;
-
-                Ok(return_value)
-            }
-            MutableCacheEntry::Tombstone => unreachable!("slot should be initialized"),
-        }
-        // drop slot_guard
-    }
-
     /// Set the value at `key` only if able to successfully store the value in storage.
     /// Concurrent calls to this method are guaranteed to perform the stores atomically.
     ///
-    /// **Locking behavior:** Will deadlock if called from a closure passed into `get`, `get_mut`
-    /// or `update` on the same `key`.
+    /// **Locking behavior:** Will deadlock if called from a closure passed into `get` or `update`
+    /// on the same `key`.
     pub async fn set(&self, key: &K, value: V) -> Result<(), S::Error> {
         let mut slot_guard = self
             .items
@@ -243,8 +146,8 @@ where
     /// storage. Concurrent calls to this method are guaranteed to perform the load, update, store,
     /// and cache replacement atomically.
     ///
-    /// **Locking behavior:** Will deadlock if called from a closure passed into `get`, `get_mut`
-    /// or `update` on the same `key`.
+    /// **Locking behavior:** Will deadlock if called from a closure passed into `get` or `update`
+    /// on the same `key`.
     pub async fn update(
         &self,
         key: &K,
@@ -256,18 +159,13 @@ where
             .await;
 
         let updated_value = match slot_guard.deref() {
-            MutableCacheEntry::Value(cell) => {
-                // get_or_try_init ensures that the current thread will wait for other threads
-                // before retrieving the initialized value
-                let value = cell
-                    .get_or_try_init(async || {
-                        let value = self.storage.load(key).await?;
-                        Ok(value)
-                    })
-                    .await?;
-
-                f(value).await
-            }
+            MutableCacheEntry::Value(cell) => match cell.get() {
+                Some(value) => f(value).await,
+                None => {
+                    let value = self.storage.load(key).await?;
+                    f(&value).await
+                }
+            },
             MutableCacheEntry::Tombstone => return Err(StorageError::MissingObject),
         };
 
@@ -281,12 +179,102 @@ where
         // drop slot_guard
     }
 
+    /// Update the value at `key` with `f`, first creating a default value if the key is missing.
+    /// The cached value is only replaced after the backing storage accepts the update.
+    ///
+    /// **Locking behavior:** Will deadlock if called from a closure passed into `get` or `update`
+    /// on the same `key`.
+    pub async fn update_or_else(
+        &self,
+        key: &K,
+        f: impl AsyncFnOnce(&V) -> V,
+        default: impl AsyncFnOnce(&K) -> V,
+    ) -> StorageResult<(), S::Error> {
+        let mut slot_guard = self
+            .items
+            .write_or_insert_with(key, || MutableCacheEntry::Value(OnceCell::new()))
+            .await;
+
+        let updated_value = match slot_guard.deref() {
+            MutableCacheEntry::Value(cell) => match cell.get() {
+                Some(value) => f(value).await,
+                None => match self.storage.load(key).await {
+                    Ok(value) => f(&value).await,
+                    Err(StorageError::MissingObject) => {
+                        let value = default(key).await;
+                        f(&value).await
+                    }
+                    Err(StorageError::InternalError(err)) => {
+                        return Err(StorageError::InternalError(err));
+                    }
+                },
+            },
+            MutableCacheEntry::Tombstone => {
+                let value = default(key).await;
+                f(&value).await
+            }
+        };
+
+        self.storage
+            .store(key, &updated_value)
+            .await
+            .map_err(StorageError::InternalError)?;
+
+        *slot_guard = MutableCacheEntry::Value(OnceCell::from(updated_value));
+        Ok(())
+        // drop slot_guard
+    }
+
+    /// Replace the value at `key`, first creating a default value if the key is missing.
+    /// Returns the previous value. The cached value is only replaced after the backing storage
+    /// accepts the replacement.
+    ///
+    /// **Locking behavior:** Will deadlock if called from a closure passed into `get` or `update`
+    /// on the same `key`.
+    pub async fn replace_or_else(
+        &self,
+        key: &K,
+        replacement: V,
+        default: impl AsyncFnOnce(&K) -> V,
+    ) -> StorageResult<V, S::Error>
+    where
+        V: Clone,
+    {
+        let mut slot_guard = self
+            .items
+            .write_or_insert_with(key, || MutableCacheEntry::Value(OnceCell::new()))
+            .await;
+
+        let previous_value = match slot_guard.deref() {
+            MutableCacheEntry::Value(cell) => match cell.get() {
+                Some(value) => value.clone(),
+                None => match self.storage.load(key).await {
+                    Ok(value) => value,
+                    Err(StorageError::MissingObject) => default(key).await,
+                    Err(StorageError::InternalError(err)) => {
+                        return Err(StorageError::InternalError(err));
+                    }
+                },
+            },
+            MutableCacheEntry::Tombstone => default(key).await,
+        };
+
+        self.storage
+            .store(key, &replacement)
+            .await
+            .map_err(StorageError::InternalError)?;
+
+        *slot_guard = MutableCacheEntry::Value(OnceCell::from(replacement));
+        Ok(previous_value)
+        // drop slot_guard
+    }
+
     /// Remove the entry at `key` only if able to successfully remove the value from storage.
     /// Concurrent calls to this method with `get`, `set`, or `update` are guaranteed to leave the
     /// cache and storage in a consistent state.
     ///
-    /// **Locking behavior:** Will deadlock if called from a closure passed into `get`, `get_mut`
-    /// or `update` on the same `key`.
+    /// **Locking behavior:** Will deadlock if called from a closure passed into `get` or `update`
+    /// on the same `key`.
     pub async fn remove(&self, key: &K) -> Result<(), S::Error> {
         let mut slot_guard = self
             .items

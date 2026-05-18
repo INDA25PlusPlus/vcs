@@ -182,55 +182,72 @@ where
         todo!("set HEAD and update checkout state in core")
     }
 
-    async fn pending_changes_at<R>(
+    async fn pending_changes_at(
         &self,
         head: &RevisionId<D>,
-        f: impl AsyncFnOnce(&mut PendingChanges<D>) -> R,
-    ) -> RepoResult<R, S::RepoStorageError> {
-        Ok(self
+    ) -> RepoResult<PendingChanges<D>, S::RepoStorageError> {
+        match self
             .pending_changes
-            .get_mut_or_else(head, f, async |_key| PendingChanges(RepoDiff::empty()))
-            .await?)
+            .get(head, async |pending| pending.clone())
+            .await
+        {
+            Ok(pending) => Ok(pending),
+            Err(StorageError::MissingObject) => Ok(PendingChanges::empty()),
+            Err(StorageError::InternalError(err)) => Err(RepoError::StorageError(err)),
+        }
     }
 
-    async fn staged_changes_at<R>(
+    async fn staged_changes_at(
         &self,
         head: &RevisionId<D>,
-        f: impl AsyncFnOnce(&mut StagedChanges<D>) -> R,
-    ) -> RepoResult<R, S::RepoStorageError> {
+    ) -> RepoResult<StagedChanges<D>, S::RepoStorageError> {
+        match self
+            .staged_changes
+            .get(head, async |staged| staged.clone())
+            .await
+        {
+            Ok(staged) => Ok(staged),
+            Err(StorageError::MissingObject) => Ok(StagedChanges::empty()),
+            Err(StorageError::InternalError(err)) => Err(RepoError::StorageError(err)),
+        }
+    }
+
+    async fn update_staged_changes_at(
+        &self,
+        head: &RevisionId<D>,
+        f: impl AsyncFnOnce(&StagedChanges<D>) -> StagedChanges<D>,
+    ) -> RepoResult<(), S::RepoStorageError> {
         Ok(self
             .staged_changes
-            .get_mut_or_else(head, f, async |_key| StagedChanges(RepoDiff::empty()))
+            .update_or_else(head, f, async |_key| StagedChanges::empty())
             .await?)
     }
 
     pub async fn status(&self) -> RepoResult<RepoStatus<D>, S::RepoStorageError> {
         let head = self.head().await?;
-        let pending = self
-            .pending_changes_at(&head, async |pending| pending.clone())
-            .await?;
-        let staged = self
-            .staged_changes_at(&head, async |staged| staged.clone())
-            .await?;
+        let pending = self.pending_changes_at(&head).await?;
+        let staged = self.staged_changes_at(&head).await?;
         Ok(RepoStatus { staged, pending })
     }
 
     pub async fn stage(&self, paths: &[RepoPath]) -> RepoResult<(), S::RepoStorageError> {
         let head = self.head().await?;
 
-        let pending = self
-            .pending_changes_at(&head, async |pending| pending.clone())
-            .await?;
+        let pending = self.pending_changes_at(&head).await?;
 
-        self.staged_changes_at(&head, async |staged| {
-            let staged = DashMapGuard::new(&mut staged.0.changeset);
-            for path in paths {
-                if let Some(change) = pending.0.changeset.get(path) {
-                    staged.insert(path.clone(), change.clone());
-                } else {
-                    staged.remove(path);
+        self.update_staged_changes_at(&head, async |staged| {
+            let mut updated_staged = staged.clone();
+            {
+                let staged_changes = DashMapGuard::new(&mut updated_staged.0.changeset);
+                for path in paths {
+                    if let Some(change) = pending.0.changeset.get(path) {
+                        staged_changes.insert(path.clone(), change.clone());
+                    } else {
+                        staged_changes.remove(path);
+                    }
                 }
             }
+            updated_staged
         })
         .await?;
         Ok(())
@@ -239,11 +256,15 @@ where
     pub async fn unstage(&self, paths: &[RepoPath]) -> RepoResult<(), S::RepoStorageError> {
         let head = self.head().await?;
 
-        self.staged_changes_at(&head, async |staged: &mut StagedChanges<D>| {
-            let staged = DashMapGuard::new(&mut staged.0.changeset);
-            for path in paths {
-                staged.remove(path);
+        self.update_staged_changes_at(&head, async |staged| {
+            let mut updated_staged = staged.clone();
+            {
+                let staged_changes = DashMapGuard::new(&mut updated_staged.0.changeset);
+                for path in paths {
+                    staged_changes.remove(path);
+                }
             }
+            updated_staged
         })
         .await?;
         Ok(())
@@ -342,9 +363,16 @@ where
 
         let (mut new_pending, staged) = try_join!(
             // Pending changes are carried forward to the new head and removed from the old head.
-            self.pending_changes_at(&old_head, async |pending| std::mem::take(pending)),
+            self.pending_changes.replace_or_else(
+                &old_head,
+                PendingChanges::empty(),
+                async |_key| PendingChanges::empty()
+            ),
             // replace the staged changes at the old revision with an empty diff
-            self.staged_changes_at(&old_head, async |staged| std::mem::take(staged))
+            self.staged_changes
+                .replace_or_else(&old_head, StagedChanges::empty(), async |_key| {
+                    StagedChanges::empty()
+                })
         )?;
         if staged.is_empty() {
             return Err(RepoError::NoStagedChanges);
@@ -382,7 +410,12 @@ where
                     .map_err(RepoError::StorageError)
             },
             // insert empty staged changes
-            self.staged_changes_at(&revision_id, async |_entry| {}),
+            async {
+                self.staged_changes
+                    .set(&revision_id, StagedChanges::empty())
+                    .await
+                    .map_err(RepoError::StorageError)
+            },
             self.set_head(revision_id.clone()),
         )?;
 
@@ -414,33 +447,22 @@ mod tests {
             (bar.clone(), bar_change.clone()),
         ]);
 
-        repo.pending_changes_at(&head, async |entry| *entry = pending)
-            .await
-            .unwrap();
+        repo.pending_changes.set(&head, pending).await.unwrap();
         let paths = [foo.clone()];
         repo.stage(&paths).await.unwrap();
 
-        let staged = repo
-            .staged_changes_at(&head, async |entry| entry.clone())
-            .await
-            .unwrap();
+        let staged = repo.staged_changes_at(&head).await.unwrap();
         assert_eq!(staged.0.changeset.len(), 1);
         assert_eq!(staged.0.changeset.get(&foo), Some(&foo_change));
 
-        let pending = repo
-            .pending_changes_at(&head, async |entry| entry.clone())
-            .await
-            .unwrap();
+        let pending = repo.pending_changes_at(&head).await.unwrap();
         assert_eq!(pending.0.changeset.len(), 2);
         assert_eq!(pending.0.changeset.get(&foo), Some(&foo_change));
         assert_eq!(pending.0.changeset.get(&bar), Some(&bar_change));
 
         let paths = [foo.clone()];
         repo.unstage(&paths).await.unwrap();
-        let staged = repo
-            .staged_changes_at(&head, async |entry| entry.clone())
-            .await
-            .unwrap();
+        let staged = repo.staged_changes_at(&head).await.unwrap();
         assert!(staged.is_empty());
     }
 
