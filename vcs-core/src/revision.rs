@@ -13,6 +13,7 @@ use crate::diff::repo_diff::{RepoDiff, RepoDiffRef};
 use crate::revision::author::{Author, AuthorSignature, Committer};
 use crate::revision::timestamp::Timestamp;
 use crypto_hash_derive::CryptoHash;
+use serde::{Deserialize, Serialize};
 use std::hash::Hash;
 
 pub mod author;
@@ -27,19 +28,19 @@ pub const FORMAT_VERSION: FormatVersion = 0;
 
 pub const INITIAL_REVISION_MESSAGE: &str = "Initial revision";
 
-#[derive(Clone, Debug, CryptoHash)]
+#[derive(Clone, Debug, CryptoHash, Serialize, Deserialize)]
 pub struct Patch<D: CryptoDigest + CryptoHash> {
     repo_diff: RepoDiffRef<D>,
     author: Author<D>,
 }
 
-#[derive(Clone, Debug, CryptoHash)]
+#[derive(Clone, Debug, CryptoHash, Serialize, Deserialize)]
 pub struct RevisionHeader<D: CryptoDigest + CryptoHash> {
     pub repo_diff: RepoDiffRef<D>,
     pub parent: RevisionRef<D>,
 }
 
-#[derive(Clone, Debug, CryptoHash)]
+#[derive(Clone, Debug, CryptoHash, Serialize, Deserialize)]
 pub struct RevisionMetadata<D: CryptoDigest + CryptoHash> {
     pub version: FormatVersion,
     pub patches: Box<[Patch<D>]>,

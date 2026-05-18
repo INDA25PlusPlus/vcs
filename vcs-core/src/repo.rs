@@ -13,18 +13,19 @@ use crate::revision::timestamp::Timestamp;
 use crate::revision::{Patch, Revision, RevisionHeader, RevisionMetadata, RevisionRef};
 use crate::storage::cache::MutableCache;
 use crate::storage::{StorageError, cache::FrozenCache};
+use serde::{Deserialize, Serialize};
 use std::error::Error;
 use std::hash::Hash;
 use std::sync::Arc;
 use tokio::try_join;
 
-#[derive(Clone, CryptoHash, Debug)]
+#[derive(Clone, CryptoHash, Debug, Serialize, Deserialize)]
 pub struct Head<D: CryptoDigest + CryptoHash>(pub RevisionRef<D>);
 
-#[derive(Clone, CryptoHash, Debug)]
+#[derive(Clone, CryptoHash, Debug, Serialize, Deserialize)]
 pub struct PendingChanges<D: CryptoDigest + CryptoHash>(pub RepoDiff<D>);
 
-#[derive(Clone, CryptoHash, Debug)]
+#[derive(Clone, CryptoHash, Debug, Serialize, Deserialize)]
 pub struct StagedChanges<D: CryptoDigest + CryptoHash>(pub RepoDiff<D>);
 
 impl<D: CryptoDigest + CryptoHash> PendingChanges<D> {

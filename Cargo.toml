@@ -4,9 +4,9 @@ resolver = "3"
 
 [workspace.dependencies]
 aws-lc-rs = "1.17.0"
-blake3 = "1.8.5"
+blake3 = { version = "1.8.5", features = ["serde"] }
 cfg-if = "1.0.4"
-dashmap = "6.1.0"
+dashmap = { version = "6.1.0", features = ["serde"] }
 futures = "0.3.32"
 tokio = { version = "1.52.3", features = ["fs", "macros", "rt", "rt-multi-thread", "sync"] }
 vcs-core = { path = "vcs-core" }

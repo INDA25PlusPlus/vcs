@@ -5,11 +5,12 @@ use crate::storage::{Storage, StorageError};
 use crypto_hash_derive::CryptoHash;
 use futures::future::try_join_all;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
+use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Formatter};
 use tokio::try_join;
 
 /// A change made to a file from one revision to another
-#[derive(Clone, Debug, Eq, PartialEq, CryptoHash)]
+#[derive(Clone, Debug, Eq, PartialEq, CryptoHash, Serialize, Deserialize)]
 pub enum FileChange<D: CryptoDigest + CryptoHash> {
     Create(FileRef<D>),
     Modify(FileDiffRef<D>),
@@ -17,14 +18,14 @@ pub enum FileChange<D: CryptoDigest + CryptoHash> {
 }
 
 /// The full contents of a file
-#[derive(Clone, Eq, PartialEq, CryptoHash)]
+#[derive(Clone, Eq, PartialEq, CryptoHash, Serialize, Deserialize)]
 pub struct File {
     pub content: Box<[u8]>,
     pub executable_status: bool,
 }
 
 /// A collection of changes made to a file
-#[derive(Clone, Eq, PartialEq, Debug, CryptoHash)]
+#[derive(Clone, Eq, PartialEq, Debug, CryptoHash, Serialize, Deserialize)]
 pub struct FileDiff {
     pub hunks: HunkCollection,
     pub executable_status: bool,

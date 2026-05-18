@@ -1,7 +1,10 @@
 use crypto_hash_derive::CryptoHash;
+use serde::{Deserialize, Serialize};
 use std::time::SystemTime;
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, CryptoHash)]
+#[derive(
+    Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, CryptoHash, Serialize, Deserialize,
+)]
 pub struct Timestamp {
     unix_seconds: u64,
 }
