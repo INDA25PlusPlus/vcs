@@ -1,6 +1,6 @@
+use crate::changeset::Changeset;
+use crate::changeset::file::{File, FileDiff};
 use crate::crypto::digest::{CryptoDigest, CryptoHash};
-use crate::diff::repo_diff::RepoDiff;
-use crate::fs::file::{File, FileDiff};
 use crate::repo::repo_storage::RepoStorage;
 use crate::repo::{Head, PendingChanges, StagedChanges};
 use crate::revision::{RevisionHeader, RevisionMetadata};
@@ -144,6 +144,6 @@ impl_disk_storable! { impl RevisionHeader<D> = "rev_header"; }
 impl_disk_storable! { impl RevisionMetadata<D> = "rev_meta"; }
 impl_disk_storable! { impl PendingChanges<D> = "pending"; }
 impl_disk_storable! { impl StagedChanges<D> = "staged"; }
-impl_disk_storable! { impl RepoDiff<D> = "repo_diff"; }
+impl_disk_storable! { impl Changeset<D> = "changeset"; }
 impl_disk_storable! { impl File = "file_content"; }
 impl_disk_storable! { impl FileDiff = "file_diff"; }

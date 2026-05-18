@@ -49,7 +49,7 @@ async fn store_head(app: &App, head: Digest) {
 
 async fn store_revision(app: &App, revision_id: Digest, parent: Digest) {
     let header = RevisionHeader {
-        repo_diff: Digest::zero(),
+        changeset: Digest::zero(),
         parent,
     };
     let metadata = RevisionMetadata {
