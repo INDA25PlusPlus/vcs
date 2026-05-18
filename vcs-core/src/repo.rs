@@ -249,13 +249,6 @@ where
         Ok(())
     }
 
-    // pub async fn get_diff(
-    //     &self,
-    //     repo_diff_ref: RepoDiffRef<D>,
-    // ) -> RepoResult<&RepoDiff<D>, S::RepoStorageError> {
-    //     todo!()
-    // }
-
     pub async fn insert_repo_diff(
         &self,
         repo_diff: RepoDiff<D>,
