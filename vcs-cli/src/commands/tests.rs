@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use crate::{App, Digest, short_digest};
 use vcs_core::crypto::digest::CryptoDigest;
 use vcs_core::repo::Head;
@@ -9,10 +7,8 @@ use vcs_core::storage::memory::MemoryRepoStorage;
 
 type TestStorage = MemoryRepoStorage<Digest>;
 
-fn in_memory_app() -> App {
-    App {
-        storage: Arc::new(TestStorage::new()),
-    }
+fn in_memory_app() -> App<TestStorage> {
+    App::with_storage(TestStorage::new())
 }
 
 #[tokio::test]
@@ -41,13 +37,13 @@ async fn log_walks_revision_parents_from_head() {
     assert_eq!(output, expected);
 }
 
-async fn store_head(app: &App, head: Digest) {
+async fn store_head(app: &App<TestStorage>, head: Digest) {
     <TestStorage as CoreStorage<(), Head<Digest>>>::store(app.storage.as_ref(), &(), &Head(head))
         .await
         .unwrap();
 }
 
-async fn store_revision(app: &App, revision_id: Digest, parent: Digest) {
+async fn store_revision(app: &App<TestStorage>, revision_id: Digest, parent: Digest) {
     let header = RevisionHeader {
         changeset: Digest::zero(),
         parent,

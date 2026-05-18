@@ -5,7 +5,8 @@ use std::sync::Arc;
 use clap::{Parser, Subcommand};
 use vcs_core::crypto::signature::{SignContext, generate_signing_key};
 use vcs_core::repo::Repo;
-use vcs_core::storage::memory::MemoryRepoStorage;
+use vcs_core::repo::repo_storage::RepoStorage;
+use vcs_core::storage::disk::DiskStorage;
 
 mod commands;
 mod error;
@@ -15,7 +16,12 @@ mod tests;
 use error::CliError;
 
 type Digest = blake3::Hash;
-type Storage = MemoryRepoStorage<Digest>;
+type Storage = DiskStorage;
+const STORAGE_PATH: &str = ".vcs";
+
+pub(crate) trait AppStorage: RepoStorage<Digest> + Send + Sync {}
+
+impl<S> AppStorage for S where S: RepoStorage<Digest> + Send + Sync {}
 
 #[derive(Debug, Parser)]
 #[command(name = "vcs", version)]
@@ -67,18 +73,30 @@ async fn main() -> ExitCode {
     }
 }
 
-pub(crate) struct App {
-    storage: Arc<Storage>,
+pub(crate) struct App<S = Storage>
+where
+    S: AppStorage,
+{
+    storage: Arc<S>,
 }
 
-impl App {
-    pub(crate) fn new() -> App {
-        App {
-            storage: Arc::new(Storage::new()),
+impl App<Storage> {
+    pub(crate) fn new() -> Self {
+        Self::with_storage(Storage::new(PathBuf::from(STORAGE_PATH).into_boxed_path()))
+    }
+}
+
+impl<S> App<S>
+where
+    S: AppStorage,
+{
+    pub(crate) fn with_storage(storage: S) -> Self {
+        Self {
+            storage: Arc::new(storage),
         }
     }
 
-    pub(crate) async fn init_repo(&self) -> Result<Repo<Digest, Storage>, CliError> {
+    pub(crate) async fn init_repo(&self) -> Result<Repo<Digest, S>, CliError> {
         // TODO: Load a persistent user signing key instead of generating a throwaway key.
         let key_pair = generate_signing_key().map_err(|_| CliError::KeyGeneration)?;
 
@@ -87,7 +105,7 @@ impl App {
             .map_err(CliError::from)
     }
 
-    pub(crate) async fn open_repo(&self) -> Repo<Digest, Storage> {
+    pub(crate) async fn open_repo(&self) -> Repo<Digest, S> {
         Repo::load(self.storage.clone()).await
     }
 }

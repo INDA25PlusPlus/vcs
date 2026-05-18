@@ -1,7 +1,10 @@
 use crate::error::CliError;
-use crate::{App, short_digest};
+use crate::{App, AppStorage, short_digest};
 
-pub async fn run(app: &App) -> Result<(), CliError> {
+pub async fn run<S>(app: &App<S>) -> Result<(), CliError>
+where
+    S: AppStorage,
+{
     let repo = app.init_repo().await?;
     let head = repo.head().await?;
 

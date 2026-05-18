@@ -1,16 +1,22 @@
 use crate::error::CliError;
-use crate::{App, Digest};
+use crate::{App, AppStorage, Digest};
 use dashmap::ReadOnlyView;
 use vcs_core::changeset::file::FileChange;
 use vcs_core::fs::path::RepoPath;
 use vcs_core::repo::RepoStatus;
 
-pub async fn run(app: &App) -> Result<(), CliError> {
+pub async fn run<S>(app: &App<S>) -> Result<(), CliError>
+where
+    S: AppStorage,
+{
     print!("{}", output(app).await?);
     Ok(())
 }
 
-pub(super) async fn output(app: &App) -> Result<String, CliError> {
+pub(super) async fn output<S>(app: &App<S>) -> Result<String, CliError>
+where
+    S: AppStorage,
+{
     let repo = app.open_repo().await;
     let status = repo.status().await?;
 
