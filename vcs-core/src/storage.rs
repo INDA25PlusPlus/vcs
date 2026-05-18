@@ -4,6 +4,8 @@ pub mod cache;
 pub mod memory;
 mod slotmap;
 
+use std::future::Future;
+
 pub type StorageResult<T, E> = Result<T, StorageError<E>>;
 
 #[derive(Clone, Debug, Error)]

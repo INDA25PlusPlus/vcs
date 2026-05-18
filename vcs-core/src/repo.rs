@@ -15,6 +15,9 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 #[derive(Clone, CryptoHash, Debug)]
+pub struct Head<D: CryptoDigest + CryptoHash>(pub RevisionId<D>);
+
+#[derive(Clone, CryptoHash, Debug)]
 pub struct PendingChanges<D: CryptoDigest + CryptoHash>(pub RepoDiff<D>);
 
 #[derive(Clone, CryptoHash, Debug)]
