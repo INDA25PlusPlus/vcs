@@ -55,7 +55,8 @@ impl<D: CryptoDigest> SignedDigest<D> {
 
 impl<D: CryptoDigest> CryptoHash for SignedDigest<D> {
     fn crypto_hash<OutD: CryptoDigest, H: CryptoHasher<Output = OutD>>(&self, state: &mut H) {
-        todo!()
+        self.public_key.as_ref().crypto_hash(state);
+        self.signature.as_ref().crypto_hash(state);
     }
 }
 
