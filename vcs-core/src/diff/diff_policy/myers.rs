@@ -1,11 +1,8 @@
 use bytes::Bytes;
 
-use crate::diff::{
-    hunk_collection::HunkCollection,
-    operations::{Op, OpStreamExt},
-};
-
 use super::DiffPolicy;
+use crate::diff::hunk::HunkCollection;
+use crate::diff::operations::{Op, OpStreamExt};
 
 /// Computes the shortest edit script between two byte slices using Myers' algorithm.
 fn myers_ops(src: &[u8], dst: &[u8]) -> Vec<Op> {
