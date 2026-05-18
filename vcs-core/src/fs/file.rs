@@ -68,7 +68,7 @@ where
         hunks: HunkCollection::compose(a.hunks, b.hunks),
         executable_status: b.executable_status,
     }) else {
-        return Ok(None);
+        return Ok(base_file.map(|file| FileChange::Create(file.to_digest())));
     };
 
     if let Some(base_file) = base_file {
