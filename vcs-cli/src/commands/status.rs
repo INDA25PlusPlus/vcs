@@ -1,7 +1,7 @@
 use crate::error::CliError;
 use crate::{App, Digest};
 use dashmap::ReadOnlyView;
-use vcs_core::fs::file::FileChange;
+use vcs_core::changeset::file::FileChange;
 use vcs_core::fs::path::RepoPath;
 use vcs_core::repo::RepoStatus;
 

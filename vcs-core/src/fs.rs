@@ -1,20 +1,19 @@
 pub mod disk;
-pub mod file;
 pub mod map_ops;
 pub mod memory;
 pub mod path;
 
+use crate::changeset::Changeset;
+use crate::changeset::file::File;
+use crate::changeset::file::{FileChange, FileDiff, FileRef};
 use crate::crypto::digest::{CryptoDigest, CryptoHash};
 use crate::diff::diff_policy::DiffPolicy;
 use crate::diff::hunk_collection::{HunkCollection, HunkCollectionError};
-use crate::diff::repo_diff::RepoDiff;
-use crate::fs::file::{FileChange, FileDiff, FileRef};
 use crate::fs::map_ops::replace_or_insert;
 use crate::repo::PendingChanges;
 use crate::repo::repo_storage::RepoStorage;
 use crate::storage::StorageError;
 use dashmap::{DashMap, ReadOnlyView};
-use file::File;
 use path::RepoPath;
 use std::{future::Future, hash::Hash};
 use thiserror::Error;
@@ -184,10 +183,10 @@ pub enum FileTreeError {
     InvalidFileChangeMode,
 }
 
-impl<D: CryptoDigest + CryptoHash + Eq + Hash> TryFrom<RepoDiff<D>> for FileTree<D> {
+impl<D: CryptoDigest + CryptoHash + Eq + Hash> TryFrom<Changeset<D>> for FileTree<D> {
     type Error = FileTreeError;
 
-    fn try_from(value: RepoDiff<D>) -> Result<Self, Self::Error> {
+    fn try_from(value: Changeset<D>) -> Result<Self, Self::Error> {
         value
             .changeset
             .into_inner()

@@ -1,7 +1,7 @@
+use crate::changeset::Changeset;
+use crate::changeset::file::{File, FileChange, FileRef};
 use crate::crypto::digest::{CryptoDigest, CryptoHash};
 use crate::diff::diff_policy::DiffPolicy;
-use crate::diff::repo_diff::RepoDiff;
-use crate::fs::file::{File, FileChange, FileRef};
 use crate::fs::map_ops::{
     DashMapGuard, DashMapReadOnlyGuard, OuterJoinEntry, outer_join, remove_difference,
 };
@@ -145,7 +145,7 @@ impl FileSystem for DiskFileSystem {
 
         let mut cache_times = self.cache_times.lock().await;
 
-        let PendingChanges(RepoDiff { changeset }) = pending_changes;
+        let PendingChanges(Changeset { changeset }) = pending_changes;
         let changeset_rw = DashMapGuard::new(changeset);
 
         let now = SystemTime::now();

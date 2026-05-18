@@ -1,6 +1,6 @@
+use crate::changeset::file::{File, FileDiff, FileDiffRef, FileRef};
+use crate::changeset::{Changeset, ChangesetRef};
 use crate::crypto::digest::{CryptoDigest, CryptoHash};
-use crate::diff::repo_diff::{RepoDiff, RepoDiffRef};
-use crate::fs::file::{File, FileDiff, FileDiffRef, FileRef};
 use crate::repo::repo_storage::RepoStorage;
 use crate::repo::{Head, PendingChanges, StagedChanges};
 use crate::revision::{RevisionHeader, RevisionMetadata, RevisionRef};
@@ -98,7 +98,7 @@ memory_repo_storage! {
     revision_metadatas: MemoryStorage<RevisionRef<D>, RevisionMetadata<D>>,
     pending_changes: MemoryStorage<RevisionRef<D>, PendingChanges<D>>,
     staged_changes: MemoryStorage<RevisionRef<D>, StagedChanges<D>>,
-    repo_diffs: MemoryStorage<RepoDiffRef<D>, RepoDiff<D>>,
+    changesets: MemoryStorage<ChangesetRef<D>, Changeset<D>>,
     files: MemoryStorage<FileRef<D>, File>,
     file_diffs: MemoryStorage<FileDiffRef<D>, FileDiff>,
 }
