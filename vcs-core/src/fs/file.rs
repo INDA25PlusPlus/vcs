@@ -19,15 +19,15 @@ pub enum FileChange<D: CryptoDigest + CryptoHash> {
 /// The full contents of a file
 #[derive(Clone, Eq, PartialEq, CryptoHash)]
 pub struct File {
-    pub(crate) content: Box<[u8]>,
-    pub(crate) executable_status: bool,
+    pub content: Box<[u8]>,
+    pub executable_status: bool,
 }
 
 /// A collection of changes made to a file
 #[derive(Clone, Eq, PartialEq, Debug, CryptoHash)]
 pub struct FileDiff {
-    pub(crate) hunks: HunkCollection,
-    pub(crate) executable_status: bool,
+    pub hunks: HunkCollection,
+    pub executable_status: bool,
 }
 
 pub type FileRef<D> = D;

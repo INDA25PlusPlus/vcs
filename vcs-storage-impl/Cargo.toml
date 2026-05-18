@@ -4,5 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+cfg-if = "1.0.4"
 dashmap = "6.1.0"
+futures = { version = "0.3.32", default-features = false, features = ["alloc"] }
+tokio = { version = "1.52.3", default-features = false, features = ["fs", "sync"] }
 vcs-core = { path = "../vcs-core" }
