@@ -166,11 +166,10 @@ mod impls {
                     ) {
                         // Consistent endianness is required for deterministic hashing. We choose
                         // little-endian because it is native on most platforms and thus most
-                        // performant in most cases. Unfortunately this means that allocating a
-                        // temporary buffer is required for conversion on big-endian platforms.
+                        // performant in most cases. This means that values have to be converted
+                        // on big-endian.
                         state.write_length_prefix(data.len());
-                        let bytes: Vec<_> = data.iter().flat_map(|i| i.to_le_bytes()).collect();
-                        state.write(bytemuck::must_cast_slice(&bytes));
+                        data.iter().for_each(|i| i.to_le_bytes().crypto_hash(state));
                     }
                 }
             )*
