@@ -6,6 +6,7 @@ use crate::repo::{Head, PendingChanges, StagedChanges};
 use crate::revision::{RevisionHeader, RevisionMetadata};
 use crate::storage::{Storage, StorageError, StorageResult};
 use serde::{Deserialize, Serialize};
+use std::io::ErrorKind;
 use std::path::Path;
 use thiserror::Error;
 
@@ -51,9 +52,13 @@ where
         path.push(filename);
 
         // read bytes
-        let bytes = tokio::fs::read(&path)
-            .await
-            .map_err(|e| StorageError::InternalError(DiskStorageError::Io(e)))?;
+        let bytes = match tokio::fs::read(&path).await {
+            Ok(bytes) => bytes,
+            Err(err) if err.kind() == ErrorKind::NotFound => {
+                return Err(StorageError::MissingObject);
+            }
+            Err(err) => return Err(StorageError::InternalError(DiskStorageError::Io(err))),
+        };
 
         // deserialize
         let value = postcard::from_bytes::<V>(&bytes)
