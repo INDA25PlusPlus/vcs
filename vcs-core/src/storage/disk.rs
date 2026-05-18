@@ -1,12 +1,13 @@
-use serde::{Deserialize, Serialize};
-use std::path::Path;
-
 use crate::crypto::digest::{CryptoDigest, CryptoHash};
 use crate::diff::repo_diff::RepoDiff;
 use crate::fs::file::{File, FileDiff};
+use crate::repo::repo_storage::RepoStorage;
 use crate::repo::{Head, PendingChanges, StagedChanges};
 use crate::revision::{RevisionHeader, RevisionMetadata};
 use crate::storage::{Storage, StorageError, StorageResult};
+use serde::{Deserialize, Serialize};
+use std::path::Path;
+use thiserror::Error;
 
 pub struct DiskStorage {
     pub base_path: Box<Path>,
@@ -18,10 +19,13 @@ impl DiskStorage {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum DiskStorageError {
+    #[error("I/O error: {0}")]
     Io(std::io::Error),
+    #[error("serialization error")]
     Serialization,
+    #[error("deserialization error")]
     Deserialization,
 }
 
@@ -113,6 +117,13 @@ impl DiskStorageKey for () {
 
 pub trait DiskStorable {
     const OBJECT_PATH: &'static str;
+}
+
+impl<D: CryptoDigest + CryptoHash> RepoStorage<D> for DiskStorage
+where
+    D: DiskStorageKey + Serialize + for<'de> Deserialize<'de> + Send,
+{
+    type RepoStorageError = DiskStorageError;
 }
 
 macro_rules! impl_disk_storable {
