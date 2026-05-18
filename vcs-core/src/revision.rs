@@ -14,6 +14,7 @@ use crate::repo::Repo;
 use crate::repo::repo_storage::RepoStorage;
 use crate::revision::author::{Author, AuthorSignature, Committer};
 use crate::revision::timestamp::Timestamp;
+use crypto_hash_derive::CryptoHash;
 use std::hash::Hash;
 
 pub mod author;
@@ -34,13 +35,13 @@ pub struct Patch<D: CryptoDigest + CryptoHash> {
     author: Author<D>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, CryptoHash)]
 pub struct RevisionHeader<D: CryptoDigest + CryptoHash> {
     pub repo_diff: RepoDiffRef<D>,
     pub parent: RevisionId<D>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, CryptoHash)]
 pub struct RevisionMetadata<D: CryptoDigest + CryptoHash> {
     pub version: FormatVersion,
     pub patches: Box<[Patch<D>]>,
@@ -192,6 +193,7 @@ where
 
 impl<D: CryptoDigest + CryptoHash> CryptoHash for Revision<D> {
     fn crypto_hash<OutD: CryptoDigest, H: CryptoHasher<Output = OutD>>(&self, state: &mut H) {
-        todo!()
+        self.header.crypto_hash(state);
+        self.metadata.crypto_hash(state);
     }
 }
