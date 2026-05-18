@@ -1,11 +1,14 @@
+use thiserror::Error;
+
 pub mod cache;
+pub mod memory;
 mod slotmap;
 
 use std::future::Future;
 
 pub type StorageResult<T, E> = Result<T, StorageError<E>>;
 
-#[derive(thiserror::Error, Debug)]
+#[derive(Clone, Debug, Error)]
 pub enum StorageError<E> {
     #[error("internal storage error: {0}")]
     InternalError(E),

@@ -1,12 +1,17 @@
 use crate::crypto::digest::{CryptoDigest, CryptoHash, CryptoHasher};
-use crate::fs::file::FileChange;
+use crate::fs::file::{FileChange, FileChangeError, combine_file_changes};
 use crate::fs::path::RepoPath;
+use crate::repo::repo_storage::RepoStorage;
+use crate::storage::{Storage, StorageError};
+use dashmap::{DashMap, ReadOnlyView};
+use futures::future::try_join_all;
 use std::collections::HashMap;
+use std::ops::Deref;
 
 /// A collection of changes made to a repository from one revision to another
 #[derive(Clone, Debug)]
 pub struct RepoDiff<D: CryptoDigest + CryptoHash> {
-    pub(crate) file_diffs: HashMap<RepoPath, FileChange<D>>,
+    pub changeset: ReadOnlyView<RepoPath, FileChange<D>>,
 }
 
 pub type RepoDiffRef<D> = D;
@@ -14,7 +19,7 @@ pub type RepoDiffRef<D> = D;
 impl<D: CryptoDigest + CryptoHash> RepoDiff<D> {
     pub(crate) fn empty() -> RepoDiff<D> {
         RepoDiff {
-            file_diffs: HashMap::new(),
+            changeset: DashMap::new().into_read_only(),
         }
     }
 }
@@ -22,10 +27,52 @@ impl<D: CryptoDigest + CryptoHash> RepoDiff<D> {
 impl<D: CryptoDigest + CryptoHash> CryptoHash for RepoDiff<D> {
     fn crypto_hash<OutD: CryptoDigest, H: CryptoHasher<Output = OutD>>(&self, state: &mut H) {
         // sort is required for the hash to be deterministic
-        let mut entries: Vec<_> = self.file_diffs.iter().collect();
-        entries.sort_by_key(|(path, _)| *path);
-        CryptoHash::crypto_hash_slice(&entries, state);
+        let mut entries: Vec<_> = self.changeset.iter().collect();
+        entries.sort_by_key(|(k, _v)| *k);
+        entries.crypto_hash(state);
     }
+}
+
+pub async fn combine_repo_diffs<'a, D, S>(
+    repo_diffs: &[RepoDiff<D>],
+    storage: &S,
+) -> Result<RepoDiffRef<D>, FileChangeError<S::RepoStorageError>>
+where
+    D: 'a + CryptoDigest + CryptoHash + Send,
+    S: RepoStorage<D>,
+{
+    let mut file_change_vecs = HashMap::new();
+    for repo_diff in repo_diffs {
+        for (path, file_change) in repo_diff.changeset.iter() {
+            let entry = file_change_vecs.entry(path.clone()).or_insert(vec![]);
+            entry.push(file_change);
+        }
+    }
+
+    let futures = file_change_vecs
+        .iter()
+        .map(|(path, file_changes)| async move {
+            let combined_change = combine_file_changes(file_changes.deref(), storage).await;
+            combined_change.map(|file_change_option| (path, file_change_option))
+        });
+
+    let combined_changes = try_join_all(futures).await?;
+    let changeset: DashMap<RepoPath, FileChange<D>> = combined_changes
+        .into_iter()
+        .filter_map(|(path, file_change_option)| {
+            file_change_option.map(|file_change| (path.clone(), file_change))
+        })
+        .collect();
+    let repo_diff = RepoDiff {
+        changeset: changeset.into_read_only(),
+    };
+
+    let repo_diff_digest = repo_diff.to_digest();
+    <S as Storage<RepoDiffRef<D>, RepoDiff<D>>>::store(storage, &repo_diff_digest, &repo_diff)
+        .await
+        .map_err(|err| FileChangeError::StorageError(StorageError::InternalError(err)))?;
+
+    Ok(repo_diff_digest)
 }
 
 #[cfg(test)]
@@ -34,20 +81,22 @@ mod tests {
     use crate::diff::repo_diff::RepoDiff;
     use crate::fs::file::FileChange;
     use crate::fs::path::RepoPath;
-    use std::collections::HashMap;
+    use dashmap::DashMap;
 
     #[test]
     fn repo_diff_crypto_hash() {
         fn assert_digest(files: &[(&str, &[u8])], digest: &[u8]) {
             let expected = blake3::Hash::from_slice(digest).unwrap();
-            let mut file_diffs = HashMap::new();
+            let file_diffs = DashMap::new();
             for (path, file_digest) in files {
                 file_diffs.insert(
                     RepoPath::try_from(*path).unwrap(),
                     FileChange::Create(blake3::Hash::from_slice(file_digest).unwrap()),
                 );
             }
-            let repo_diff = RepoDiff { file_diffs };
+            let repo_diff = RepoDiff {
+                changeset: file_diffs.into_read_only(),
+            };
             let actual = <blake3::Hash as CryptoDigest>::generate(&repo_diff);
             assert_eq!(actual, expected,);
         }

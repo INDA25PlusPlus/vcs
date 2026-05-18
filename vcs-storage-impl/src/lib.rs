@@ -1,2 +1,1 @@
-pub mod disk;
-pub mod memory;
+pub mod disk_fs;
