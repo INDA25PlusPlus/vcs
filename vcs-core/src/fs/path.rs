@@ -17,6 +17,7 @@ compile_error!("Only target families 'unix' and 'windows' are supported!");
 /// - May not be equal to '.' or '..'.
 #[derive(Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd, Hash, CryptoHash)]
 pub struct RepoPath {
+    // todo more efficient representation
     components: Box<[RepoPathComponent]>,
 }
 
@@ -40,6 +41,22 @@ impl RepoPath {
     pub fn components(&self) -> &[RepoPathComponent] {
         &self.components
     }
+
+    pub fn join(&self, component: RepoPathComponent) -> RepoPath {
+        let mut components = self.components.clone().into_vec();
+        components.push(component);
+        RepoPath {
+            components: components.into_boxed_slice(),
+        }
+    }
+
+    pub fn append_to(&self, base_path: &mut PathBuf) -> Result<(), RepoPathError> {
+        for comp in &self.components {
+            let comp: &OsStr = comp.try_into()?;
+            base_path.push(comp);
+        }
+        Ok(())
+    }
 }
 
 impl Display for RepoPath {
@@ -62,24 +79,43 @@ impl TryFrom<&RepoPath> for PathBuf {
     /// components and `value` contains non UTF-8 path components.
     fn try_from(value: &RepoPath) -> Result<PathBuf, Self::Error> {
         let mut path = PathBuf::new();
+        value.append_to(&mut path)?;
+        Ok(path)
+    }
+}
 
+impl<'a> TryFrom<&'a RepoPathComponent> for &'a OsStr {
+    type Error = RepoPathError;
+
+    fn try_from(value: &'a RepoPathComponent) -> Result<Self, Self::Error> {
         #[cfg(unix)]
         {
             use std::os::unix::ffi::OsStrExt;
-            for comp in &value.components {
-                path.push(OsStr::from_bytes(&comp.inner));
-            }
+            Ok(OsStr::from_bytes(&value.inner))
         }
 
         #[cfg(windows)]
         {
-            for comp in &value.components {
-                let utf8_str = str::from_utf8(&comp.inner).map_err(|_| RepoPathError)?;
-                path.push(OsStr::new(utf8_str));
-            }
+            let utf8_str = str::from_utf8(&value.inner).map_err(|_| RepoPathError)?;
+            Ok(OsStr::new(utf8_str))
         }
+    }
+}
 
-        Ok(path)
+impl TryFrom<&OsStr> for RepoPathComponent {
+    type Error = RepoPathError;
+
+    fn try_from(value: &OsStr) -> Result<Self, Self::Error> {
+        #[cfg(unix)]
+        let bytes = {
+            use std::os::unix::ffi::OsStrExt;
+            value.as_bytes()
+        };
+
+        #[cfg(windows)]
+        let bytes = value.to_str().ok_or(RepoPathError)?.as_bytes();
+
+        bytes.try_into()
     }
 }
 
@@ -114,20 +150,13 @@ impl TryFrom<&Path> for RepoPath {
         for comp in value.components() {
             match comp {
                 Component::Normal(comp) => {
-                    #[cfg(unix)]
-                    let bytes = {
-                        use std::os::unix::ffi::OsStrExt;
-                        comp.as_bytes()
-                    };
+                    let comp = RepoPathComponent::try_from(comp)?;
 
-                    #[cfg(windows)]
-                    let bytes = comp.to_str().ok_or(RepoPathError)?.as_bytes();
-
-                    let len = bytes.len();
+                    let len = comp.inner.len();
                     // plus path separator before component
                     total_len += len + 1;
 
-                    components.push(bytes.try_into()?);
+                    components.push(comp);
                 }
                 _ => return Err(RepoPathError),
             }

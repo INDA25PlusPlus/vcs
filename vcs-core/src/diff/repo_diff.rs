@@ -11,7 +11,7 @@ use std::ops::Deref;
 /// A collection of changes made to a repository from one revision to another
 #[derive(Clone, Debug)]
 pub struct RepoDiff<D: CryptoDigest + CryptoHash> {
-    pub(crate) changeset: ReadOnlyView<RepoPath, FileChange<D>>,
+    pub changeset: ReadOnlyView<RepoPath, FileChange<D>>,
 }
 
 pub type RepoDiffRef<D> = D;

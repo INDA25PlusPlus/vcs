@@ -4,17 +4,16 @@ use std::ops::{Deref, DerefMut};
 
 /// Remove all entries in `map` whose keys are not present in at least one other map.
 ///
-/// Example: `remove_difference!(&mut map, &other_a, &other_b)`
-///
 /// `map.remove(map \ other_0 \ other_1 \ ...)`
-macro_rules! remove_difference {
-    ($map:expr, $($other:expr),+) => {
-        $map.retain(|k, _| {
-            false $(|| $other.contains_key(k))+
-        })
-    };
+pub fn remove_difference<K, V1, V2, V3>(
+    map: &DashMap<K, V1>,
+    other_1: &ReadOnlyView<K, V2>,
+    other_2: &ReadOnlyView<K, V3>,
+) where
+    K: Eq + Hash,
+{
+    map.retain(|k, _| other_1.contains_key(k) || other_2.contains_key(k))
 }
-pub(crate) use remove_difference;
 
 #[inline]
 pub fn replace_or_insert<K, V>(map: &DashMap<K, V>, key: &K, value: V)

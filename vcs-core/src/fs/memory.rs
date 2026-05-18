@@ -20,10 +20,9 @@ use futures::future::try_join_all;
 use std::convert::Infallible;
 use std::fmt::Debug;
 use std::ops::Deref;
-use tokio::sync::Mutex;
 
 pub struct MemoryFileSystem {
-    files: Mutex<DashMap<RepoPath, MemoryFileSystemEntry>>,
+    files: DashMap<RepoPath, MemoryFileSystemEntry>,
 }
 
 #[derive(Clone, Debug)]
@@ -35,7 +34,7 @@ struct MemoryFileSystemEntry {
 impl MemoryFileSystem {
     pub fn new() -> MemoryFileSystem {
         MemoryFileSystem {
-            files: Mutex::new(DashMap::new()),
+            files: DashMap::new(),
         }
     }
 }
@@ -44,7 +43,7 @@ impl FileSystem for MemoryFileSystem {
     type Error = Infallible;
 
     async fn update_pending_changes<D, P, S>(
-        &self,
+        &mut self,
         diff_policy: &P,
         storage: &S,
         head: &FileTree<D>,
@@ -56,17 +55,15 @@ impl FileSystem for MemoryFileSystem {
         P: DiffPolicy,
         S: RepoStorage<D>,
     {
-        let mut files = self.files.lock().await;
-
         let PendingChanges(RepoDiff { changeset }) = pending_changes;
         let changeset_rw = DashMapGuard::new(changeset);
 
         {
-            let files_ro = DashMapReadOnlyGuard::new(&mut files);
+            let files_ro = DashMapReadOnlyGuard::new(&mut self.files);
 
             // regardless of if head changed, remove all changes to files that don't exist neither on
             // head nor in the file system
-            remove_difference!(changeset_rw, head.files, files_ro);
+            remove_difference(changeset_rw.deref(), &head.files, files_ro.deref());
 
             let outer_join = outer_join(&head.files, files_ro.deref());
 
@@ -83,12 +80,14 @@ impl FileSystem for MemoryFileSystem {
             try_join_all(futures).await?;
         }
         // set all non-dirty
-        files.iter_mut().for_each(|mut entry| entry.dirty = false);
+        self.files
+            .iter_mut()
+            .for_each(|mut entry| entry.dirty = false);
         Ok(())
     }
 
     async fn apply_pending_changes<D, S>(
-        &self,
+        &mut self,
         storage: &S,
         head: &FileTree<D>,
         pending_changes: &PendingChanges<D>,
@@ -98,17 +97,16 @@ impl FileSystem for MemoryFileSystem {
         D: CryptoDigest + CryptoHash + Send + Eq,
         S: RepoStorage<D>,
     {
-        let files = self.files.lock().await;
         let PendingChanges(RepoDiff { changeset }) = pending_changes;
 
         // regardless of if head changed, delete all files that don't exist on head and are not
         // changed in pending changes
-        remove_difference!(files.deref(), head.files, changeset);
+        remove_difference(&self.files, &head.files, changeset);
 
         let outer_join = outer_join(&head.files, changeset);
 
         let futures = outer_join.map(|(path, outer_join)| {
-            apply_change(storage, files.deref(), head_changed, path, outer_join)
+            apply_change(storage, &self.files, head_changed, path, outer_join)
         });
         try_join_all(futures).await?;
 
@@ -367,7 +365,7 @@ mod tests {
     async fn test_wrapper(
         f: impl AsyncFnOnce(
             &MemoryRepoStorage<blake3::Hash>,
-            &MemoryFileSystem,
+            &mut MemoryFileSystem,
             &FileTree<blake3::Hash>,
         ),
     ) {
@@ -381,7 +379,7 @@ mod tests {
             let file_digest = file.to_digest();
             let path = RepoPath::try_from(path).unwrap();
             storage.store(&file_digest, file.deref()).await.unwrap();
-            fs.files.lock().await.insert(
+            fs.files.insert(
                 path.clone(),
                 MemoryFileSystemEntry {
                     file: file.deref().clone(),
@@ -391,7 +389,7 @@ mod tests {
             head.insert(path, file_digest);
         }
         let storage = MemoryRepoStorage::new();
-        let fs = MemoryFileSystem::new();
+        let mut fs = MemoryFileSystem::new();
         let head = DashMap::new();
 
         insert(&storage, &fs, &head, "1", &FILE_1A).await;
@@ -400,7 +398,7 @@ mod tests {
         let head = FileTree {
             files: head.into_read_only(),
         };
-        f(&storage, &fs, &head).await;
+        f(&storage, &mut fs, &head).await;
     }
 
     mod update_pending {
@@ -436,7 +434,7 @@ mod tests {
 
                 for (path, file, dirty) in files {
                     let path = RepoPath::try_from(*path).unwrap();
-                    fs.files.lock().await.insert(
+                    fs.files.insert(
                         path,
                         MemoryFileSystemEntry {
                             file: file.clone(),

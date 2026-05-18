@@ -23,6 +23,13 @@ pub struct FileTree<D> {
     files: ReadOnlyView<RepoPath, FileRef<D>>,
 }
 
+impl<D> FileTree<D> {
+    /// This method may be removed if this struct is refactored in the future
+    pub fn read_only_view(&self) -> &ReadOnlyView<RepoPath, FileRef<D>> {
+        &self.files
+    }
+}
+
 pub type FileSystemResult<T, E> = Result<T, FileSystemError<E>>;
 
 pub type FileSystemReadResult<T, E, SE> = Result<T, FileSystemReadError<E, SE>>;
@@ -71,7 +78,7 @@ pub trait FileSystem {
     /// `read_pending_changes` or `write_pending_changes`. If `false`, the implementer may assume
     /// that `head` has not changed.
     fn update_pending_changes<D, P, S>(
-        &self,
+        &mut self,
         diff_policy: &P,
         storage: &S,
         head: &FileTree<D>,
@@ -90,7 +97,7 @@ pub trait FileSystem {
     /// `read_pending_changes` or `write_pending_changes`. If `false`, the implementer may assume
     /// that `head` has not changed.
     fn apply_pending_changes<D, S>(
-        &self,
+        &mut self,
         storage: &S,
         head: &FileTree<D>,
         pending_changes: &PendingChanges<D>,
