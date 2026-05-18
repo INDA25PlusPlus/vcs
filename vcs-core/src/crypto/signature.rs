@@ -80,6 +80,9 @@ impl<'de, D: CryptoDigest> serde::Deserialize<'de> for SignedDigest<D> {
 
 impl<D: CryptoDigest> Debug for SignedDigest<D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        todo!()
+        f.debug_struct("SignedDigest")
+            .field("public_key", &self.public_key)
+            .field("signature", &self.signature.as_ref())
+            .finish()
     }
 }
