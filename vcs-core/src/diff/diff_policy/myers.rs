@@ -9,9 +9,9 @@ use super::DiffPolicy;
 
 /// Computes the shortest edit script between two byte slices using Myers' algorithm.
 fn myers_ops(src: &[u8], dst: &[u8]) -> Vec<Op> {
-    let (n, m) = (src.len(), dst.len());
+    let n = src.len();
+    let m = dst.len();
 
-    // Trivial cases
     if n == 0 && m == 0 {
         return vec![];
     }
@@ -22,57 +22,133 @@ fn myers_ops(src: &[u8], dst: &[u8]) -> Vec<Op> {
         return vec![Op::Delete(n)];
     }
 
-    let mut edit_distance = vec![vec![0usize; m + 1]; n + 1];
+    let max_d = n + m;
+    let mut v = vec![0isize; 2 * max_d + 1];
+    let mut trace: Vec<Vec<isize>> = Vec::new();
+    let idx = |k: isize| (k + max_d as isize) as usize;
 
-    // Initialize base cases
-    for (i, row) in edit_distance.iter_mut().enumerate() {
-        row[0] = i;
-    }
-    for (j, val) in edit_distance[0].iter_mut().enumerate() {
-        *val = j;
-    }
+    'done: for d in 0..=max_d {
+        let mut v_copy = v.clone();
 
-    // Fill edit distance table
-    for i in 1..=n {
-        for j in 1..=m {
-            if src[i - 1] == dst[j - 1] {
-                edit_distance[i][j] = edit_distance[i - 1][j - 1];
+        for k in (-(d as isize))..=(d as isize) {
+            let mut x = if k == -(d as isize) {
+                v[idx(k + 1)]
+            } else if k == d as isize {
+                v[idx(k - 1)] + 1
             } else {
-                edit_distance[i][j] = 1 + std::cmp::min(
-                    edit_distance[i - 1][j],
-                    std::cmp::min(edit_distance[i][j - 1], edit_distance[i - 1][j - 1]),
-                );
+                std::cmp::max(v[idx(k - 1)] + 1, v[idx(k + 1)])
+            };
+
+            let mut y = x - k;
+            while x < n as isize && y < m as isize && src[x as usize] == dst[y as usize] {
+                x += 1;
+                y += 1;
+            }
+
+            v_copy[idx(k)] = x;
+
+            if x >= n as isize && y >= m as isize {
+                trace.push(v_copy);
+                break 'done;
             }
         }
+        trace.push(v_copy.clone());
+        v = v_copy;
     }
 
-    // Backtrack to reconstruct the edit script
-    let mut ops: Vec<Op> = Vec::new();
-    let (mut i, mut j) = (n, m);
+    reconstruct(&trace, src, dst, n, m, max_d)
+}
 
-    while i > 0 || j > 0 {
-        if i > 0 && j > 0 && src[i - 1] == dst[j - 1] {
-            ops.push(Op::Keep(1));
-            i -= 1;
-            j -= 1;
-        } else if j > 0 && (i == 0 || edit_distance[i][j - 1] < edit_distance[i - 1][j]) {
-            ops.push(Op::Insert(Bytes::copy_from_slice(&dst[j - 1..j])));
-            j -= 1;
-        } else {
-            ops.push(Op::Delete(1));
-            i -= 1;
+fn reconstruct(
+    trace: &[Vec<isize>],
+    src: &[u8],
+    dst: &[u8],
+    n: usize,
+    m: usize,
+    max_d: usize,
+) -> Vec<Op> {
+    let idx = |k: isize| (k + max_d as isize) as usize;
+    let mut ops = Vec::new();
+    let mut x = n as isize;
+    let mut y = m as isize;
+
+    for d in (0..trace.len()).rev() {
+        if d == 0 {
+            while x > 0 || y > 0 {
+                if x > 0 && y > 0 && src[(x - 1) as usize] == dst[(y - 1) as usize] {
+                    ops.push(Op::Keep(1));
+                    x -= 1;
+                    y -= 1;
+                } else if y > 0 {
+                    ops.push(Op::Insert(Bytes::copy_from_slice(
+                        &dst[(y - 1) as usize..y as usize],
+                    )));
+                    y -= 1;
+                } else {
+                    ops.push(Op::Delete(1));
+                    x -= 1;
+                }
+            }
+            break;
+        }
+
+        let v = &trace[d];
+        let v_prev = &trace[d - 1];
+
+        loop {
+            let k = x - y;
+
+            // Backtrack along diagonal
+            while x > 0 && y > 0 && src[(x - 1) as usize] == dst[(y - 1) as usize] {
+                ops.push(Op::Keep(1));
+                x -= 1;
+                y -= 1;
+            }
+
+            if x == 0 && y == 0 {
+                break;
+            }
+
+            let k_curr = idx(k);
+            let came_del = x > 0 && k != -(d as isize) && v_prev[idx(k - 1)] + 1 == v[k_curr];
+            let came_ins = y > 0 && k != (d as isize) && v_prev[idx(k + 1)] == v[k_curr];
+
+            if came_del {
+                ops.push(Op::Delete(1));
+                x -= 1;
+            } else if came_ins {
+                ops.push(Op::Insert(Bytes::copy_from_slice(
+                    &dst[(y - 1) as usize..y as usize],
+                )));
+                y -= 1;
+            } else if d > 0 {
+                break;
+            }
         }
     }
 
     ops.reverse();
 
-    let mut merged: Vec<Op> = Vec::new();
+    let mut merged = Vec::new();
     for op in ops {
-        if let Some(Op::Keep(total)) = merged.last_mut()
-            && let Op::Keep(len) = op
-        {
-            *total += len;
-            continue;
+        if let Some(last) = merged.last_mut() {
+            match (last, &op) {
+                (Op::Keep(t), Op::Keep(l)) => {
+                    *t += l;
+                    continue;
+                }
+                (Op::Delete(t), Op::Delete(l)) => {
+                    *t += l;
+                    continue;
+                }
+                (Op::Insert(b), Op::Insert(new_b)) => {
+                    let mut c = b.to_vec();
+                    c.extend_from_slice(new_b);
+                    *b = Bytes::from(c);
+                    continue;
+                }
+                _ => {}
+            }
         }
         merged.push(op);
     }
