@@ -40,6 +40,14 @@ impl<K: Eq + Hash + Clone, V: Clone> Storage<K, V> for MemoryStorage<K, V> {
         self.map.remove(key);
         Ok(())
     }
+
+    async fn dump(&self) -> Result<Vec<(K, V)>, Self::Error> {
+        Ok(self
+            .map
+            .iter()
+            .map(|entry| (entry.key().clone(), entry.value().clone()))
+            .collect())
+    }
 }
 
 impl<V: Clone + Sync> SingletonStorage<V> for MemoryStorage<(), V> {}
@@ -80,6 +88,10 @@ macro_rules! memory_repo_storage {
 
             async fn delete(&self, key: &$key) -> Result<(), Self::Error> {
                 self.$field.delete(key).await
+            }
+
+            async fn dump(&self) -> Result<Vec<($key, $value)>, Self::Error> {
+                self.$field.dump().await
             }
         }
         )*

@@ -24,6 +24,7 @@ pub trait Storage<K, V> {
     fn load(&self, key: &K) -> impl Future<Output = StorageResult<V, Self::Error>>;
     fn store(&self, key: &K, value: &V) -> impl Future<Output = Result<(), Self::Error>>;
     fn delete(&self, key: &K) -> impl Future<Output = Result<(), Self::Error>>;
+    fn dump(&self) -> impl Future<Output = Result<Vec<(K, V)>, Self::Error>>;
 }
 
 pub trait SingletonStorage<V>: Storage<(), V>

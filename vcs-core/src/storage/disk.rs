@@ -28,6 +28,8 @@ pub enum DiskStorageError {
     Serialization,
     #[error("deserialization error")]
     Deserialization,
+    #[error("invalid storage key")]
+    InvalidKey,
 }
 
 impl From<std::io::Error> for DiskStorageError {
@@ -102,21 +104,65 @@ where
 
         Ok(())
     }
+
+    async fn dump(&self) -> Result<Vec<(K, V)>, Self::Error> {
+        let mut dir = self.base_path.to_path_buf();
+        dir.push(V::OBJECT_PATH);
+
+        let mut entries = match tokio::fs::read_dir(dir).await {
+            Ok(entries) => entries,
+            Err(err) if err.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(err) => return Err(DiskStorageError::Io(err)),
+        };
+
+        let mut values = Vec::new();
+        while let Some(entry) = entries.next_entry().await? {
+            if !entry.file_type().await?.is_file() {
+                continue;
+            }
+
+            let file_name = entry.file_name();
+            let Some(file_name) = file_name.to_str() else {
+                return Err(DiskStorageError::InvalidKey);
+            };
+            let Some(key) = K::from_file_name(file_name) else {
+                return Err(DiskStorageError::InvalidKey);
+            };
+
+            let bytes = tokio::fs::read(entry.path()).await?;
+            let value =
+                postcard::from_bytes(&bytes).map_err(|_| DiskStorageError::Deserialization)?;
+            values.push((key, value));
+        }
+
+        Ok(values)
+    }
 }
 
-pub trait DiskStorageKey {
+pub trait DiskStorageKey: Sized {
     fn to_file_name(&self) -> impl AsRef<Path>;
+    fn from_file_name(file_name: &str) -> Option<Self>;
 }
 
 impl DiskStorageKey for blake3::Hash {
     fn to_file_name(&self) -> impl AsRef<Path> {
         hex::encode(self.bytes())
     }
+
+    fn from_file_name(file_name: &str) -> Option<Self> {
+        let mut bytes = [0; blake3::OUT_LEN];
+        hex::decode_to_slice(file_name, &mut bytes).ok()?;
+        Some(blake3::Hash::from_bytes(bytes))
+    }
 }
 
 impl DiskStorageKey for () {
     fn to_file_name(&self) -> impl AsRef<Path> {
         "0"
+    }
+
+    fn from_file_name(file_name: &str) -> Option<Self> {
+        (file_name == "0").then_some(())
     }
 }
 
