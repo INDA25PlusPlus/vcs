@@ -120,8 +120,7 @@ where
         &self,
         repo: &Repo<Digest, S>,
     ) -> Result<(), CliError> {
-        let mut file_system = self.file_system();
-        self.refresh_pending_changes_with(repo, &mut file_system)
+        self.refresh_pending_changes_with(repo, &mut self.file_system())
             .await
     }
 
