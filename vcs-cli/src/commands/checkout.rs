@@ -6,7 +6,7 @@ where
     S: AppStorage,
 {
     let repo = app.open_repo().await;
-    let mut file_system = app.file_system();
+    let mut file_system = app.new_file_system();
     app.refresh_pending_changes_with(&repo, &mut file_system)
         .await?;
 
