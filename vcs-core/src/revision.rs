@@ -58,6 +58,10 @@ pub struct Revision<D: CryptoDigest + CryptoHash> {
 }
 
 impl<D: CryptoDigest + CryptoHash> Patch<D> {
+    pub fn changeset(&self) -> &ChangesetRef<D> {
+        &self.changeset
+    }
+
     pub fn new_signed(
         changeset: ChangesetRef<D>,
         message: Box<str>,

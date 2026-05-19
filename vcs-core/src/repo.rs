@@ -2,11 +2,12 @@ pub mod repo_storage;
 
 use crypto_hash_derive::CryptoHash;
 
-use crate::changeset::file::FileDiff;
-use crate::changeset::{Changeset, ChangesetRef};
+use crate::changeset::file::{FileChangeError, FileDiff};
+use crate::changeset::{Changeset, ChangesetRef, combine_changesets};
 use crate::crypto::digest::{CryptoDigest, CryptoHash};
 use crate::crypto::signature::SignContext;
 use crate::diff::diff_policy::DiffPolicy;
+use crate::diff::hunk::HunkCollectionError;
 use crate::fs::map_ops::DashMapGuard;
 use crate::fs::path::RepoPath;
 use crate::fs::{FileSystem, FileSystemReadError, FileTree, FileTreeError};
@@ -96,6 +97,10 @@ pub enum RepoError<E> {
     MissingObject,
     #[error("no staged changes to commit")]
     NoStagedChanges,
+    #[error("invalid file diff: {0}")]
+    InvalidFileDiff(HunkCollectionError),
+    #[error("invalid file change sequence")]
+    InvalidFileChange,
     #[error("internal storage error: '{0}'")]
     StorageError(E),
 }
@@ -122,6 +127,16 @@ impl<E> From<StorageError<E>> for RepoError<E> {
 impl<E> From<E> for RepoError<E> {
     fn from(value: E) -> Self {
         RepoError::StorageError(value)
+    }
+}
+
+impl<E> From<FileChangeError<E>> for RepoError<E> {
+    fn from(value: FileChangeError<E>) -> Self {
+        match value {
+            FileChangeError::StorageError(err) => RepoError::from(err),
+            FileChangeError::InvalidFileDiff(err) => RepoError::InvalidFileDiff(err),
+            FileChangeError::InvalidFileChange => RepoError::InvalidFileChange,
+        }
     }
 }
 
@@ -331,14 +346,16 @@ where
         Ok(changeset_digest)
     }
 
-    #[allow(clippy::diverging_sub_expression)]
     pub async fn create_revision(
         &self,
         parent: RevisionRef<D>,
         patches: Box<[Patch<D>]>,
     ) -> RepoResult<Revision<D>, S::RepoStorageError> {
-        let changeset = todo!("combine patch repo diffs");
-        let changeset_digest = self.insert_changeset(changeset).await?;
+        let mut changesets = Vec::with_capacity(patches.len());
+        for patch in patches.iter() {
+            changesets.push(self.changesets.get(patch.changeset()).await?.clone());
+        }
+        let changeset_digest = combine_changesets(&changesets, self.storage.as_ref()).await?;
 
         Ok(Revision::from_parts(parent, changeset_digest, patches))
     }
@@ -435,15 +452,11 @@ where
         let changeset_digest = self.insert_changeset(changeset).await?;
 
         let timestamp = Timestamp::now();
-        let patch = Patch::new_signed(
-            changeset_digest.clone(),
-            author_message,
-            timestamp,
-            sign_context,
-        );
+        let patch = Patch::new_signed(changeset_digest, author_message, timestamp, sign_context);
 
-        let mut revision =
-            Revision::from_parts(old_head.clone(), changeset_digest, Box::new([patch]));
+        let mut revision = self
+            .create_revision(old_head.clone(), Box::new([patch]))
+            .await?;
         revision.commit(committer_message, timestamp, sign_context);
         let revision_id = self.insert_revision(revision).await?;
 
@@ -526,6 +539,52 @@ mod tests {
         assert!(matches!(result, Err(RepoError::NoStagedChanges)));
     }
 
+    #[tokio::test]
+    async fn create_revision_combines_patch_changesets() {
+        let (repo, parent) = repo_with_head().await;
+        let key_pair = generate_signing_key().unwrap();
+        let path = RepoPath::try_from("foo.txt").unwrap();
+        let modify_changeset = repo
+            .insert_changeset(changeset([(
+                path.clone(),
+                FileChange::Modify(blake3::hash(b"diff")),
+            )]))
+            .await
+            .unwrap();
+        let delete_changeset = repo
+            .insert_changeset(changeset([(path.clone(), FileChange::Delete)]))
+            .await
+            .unwrap();
+
+        let revision = repo
+            .create_revision(
+                parent,
+                Box::new([
+                    Patch::new_signed(
+                        modify_changeset,
+                        "modify file".into(),
+                        Timestamp::now(),
+                        SignContext::new(&key_pair),
+                    ),
+                    Patch::new_signed(
+                        delete_changeset,
+                        "delete file".into(),
+                        Timestamp::now(),
+                        SignContext::new(&key_pair),
+                    ),
+                ]),
+            )
+            .await
+            .unwrap();
+
+        let combined = repo
+            .changesets
+            .get(&revision.header().changeset)
+            .await
+            .unwrap();
+        assert_eq!(combined.changeset.get(&path), Some(&FileChange::Delete));
+    }
+
     async fn repo_with_head() -> (Repo<Digest, TestStorage>, Digest) {
         // Initialize manually to avoid hitting todo forn ow
         let storage = Arc::new(TestStorage::new());
@@ -544,9 +603,15 @@ mod tests {
     fn pending_changes(
         changes: impl IntoIterator<Item = (RepoPath, FileChange<Digest>)>,
     ) -> PendingChanges<Digest> {
+        PendingChanges(changeset(changes))
+    }
+
+    fn changeset(
+        changes: impl IntoIterator<Item = (RepoPath, FileChange<Digest>)>,
+    ) -> Changeset<Digest> {
         let changes: DashMap<_, _> = changes.into_iter().collect();
-        PendingChanges(Changeset {
+        Changeset {
             changeset: changes.into_read_only(),
-        })
+        }
     }
 }

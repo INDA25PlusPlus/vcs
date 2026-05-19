@@ -7,6 +7,8 @@ use vcs_core::repo::RepoError;
 pub(crate) enum CliError {
     MissingObject,
     NoStagedChanges,
+    InvalidFileDiff(String),
+    InvalidFileChange,
     StorageError(String),
     InvalidPath(PathBuf),
     KeyGeneration,
@@ -17,6 +19,8 @@ impl Display for CliError {
         match self {
             CliError::MissingObject => write!(f, "not a vcs repository"),
             CliError::NoStagedChanges => write!(f, "no staged changes to commit"),
+            CliError::InvalidFileDiff(err) => write!(f, "invalid file diff: {err}"),
+            CliError::InvalidFileChange => write!(f, "invalid file change sequence"),
             CliError::StorageError(err) => write!(f, "{err}"),
             CliError::InvalidPath(path) => {
                 write!(f, "invalid repository path '{}'", path.display())
@@ -33,6 +37,8 @@ impl<E: Display> From<RepoError<E>> for CliError {
         match value {
             RepoError::MissingObject => CliError::MissingObject,
             RepoError::NoStagedChanges => CliError::NoStagedChanges,
+            RepoError::InvalidFileDiff(err) => CliError::InvalidFileDiff(err.to_string()),
+            RepoError::InvalidFileChange => CliError::InvalidFileChange,
             RepoError::StorageError(err) => CliError::StorageError(err.to_string()),
         }
     }
