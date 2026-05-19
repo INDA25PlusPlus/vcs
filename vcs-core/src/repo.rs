@@ -100,10 +100,12 @@ pub enum RepoError<E> {
     MissingObject,
     #[error("no staged changes to commit")]
     NoStagedChanges,
+    #[error("invalid file change")]
+    InvalidFileChange,
     #[error("invalid file diff: {0}")]
     InvalidFileDiff(HunkCollectionError),
-    #[error("invalid file change sequence")]
-    InvalidFileChange,
+    #[error("invalid file tree: {0}")]
+    InvalidFileTree(FileTreeError),
     #[error("internal storage error: '{0}'")]
     StorageError(E),
 }
@@ -224,19 +226,13 @@ where
             &DIFF_POLICY
         }
 
-        async fn temp_traverse_construct_file_tree_naive<D: CryptoDigest + CryptoHash>(
-            rev: &RevisionRef<D>,
-        ) -> FileTree<D> {
-            todo!("naive traversal")
-        }
-
         // troligtvis måste vi lagra en Arc<tokio::sync::Mutex<F>>, där F: FileSystem, i Repo, och
         // sedan locka den här när vi vill komma åt fs. detta för att &mut krävs för att säkerställa
         // safe concerrency inom FileSystem.
         let diff_policy = temp_diff_policy();
 
         let old_head = self.head().await?;
-        let old_head_tree = temp_traverse_construct_file_tree_naive(&old_head).await;
+        let old_head_tree = self.file_tree_at(&old_head).await?;
         let fs_result: FileSystemReadResult<(), F::Error, S::RepoStorageError> = self
             .pending_changes
             .try_update(&old_head, async |pending| {
@@ -261,7 +257,7 @@ where
             Err(FileSystemReadError::StoreError(storage_err)) => todo!(),
         }
 
-        let new_head_tree = temp_traverse_construct_file_tree_naive(&rev).await;
+        let new_head_tree = self.file_tree_at(&rev).await?;
         let fs_result: FileSystemWriteResult<(), F::Error, S::RepoStorageError> = self
             .pending_changes
             .get(&rev, async |pending| {
@@ -275,6 +271,53 @@ where
             Err(err) => todo!("på samma sätt"),
         }
         self.set_head(rev).await
+    }
+
+    async fn file_tree_at(
+        &self,
+        rev: &RevisionRef<D>,
+    ) -> RepoResult<FileTree<D>, S::RepoStorageError> {
+        let mut rev = rev.clone();
+        let mut changesets = Vec::new();
+
+        loop {
+            let header = self.get_revision_header(&rev).await?;
+            let changeset = self
+                .changesets
+                .get(&header.changeset)
+                .await
+                .map_err(RepoError::from)?
+                .clone();
+            changesets.push(changeset);
+
+            if header.parent == D::zero() {
+                break;
+            }
+            rev = header.parent;
+        }
+
+        changesets.reverse();
+        let combined_changeset = combine_changesets(&changesets, self.storage.as_ref())
+            .await
+            .map_err(Self::file_change_error_to_repo_error)?;
+        let combined_changeset = self
+            .changesets
+            .get(&combined_changeset)
+            .await
+            .map_err(RepoError::from)?
+            .clone();
+
+        FileTree::try_from(combined_changeset).map_err(RepoError::InvalidFileTree)
+    }
+
+    fn file_change_error_to_repo_error(
+        err: FileChangeError<S::RepoStorageError>,
+    ) -> RepoError<S::RepoStorageError> {
+        match err {
+            FileChangeError::StorageError(err) => RepoError::from(err),
+            FileChangeError::InvalidFileDiff(err) => RepoError::InvalidFileDiff(err),
+            FileChangeError::InvalidFileChange => RepoError::InvalidFileChange,
+        }
     }
 
     async fn pending_changes_at(
@@ -551,7 +594,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::changeset::file::FileChange;
+    use crate::changeset::file::{File, FileChange};
     use crate::crypto::signature::{SignContext, generate_signing_key};
     use crate::storage::memory::MemoryRepoStorage;
     use dashmap::DashMap;
@@ -652,6 +695,40 @@ mod tests {
         assert_eq!(combined.changeset.get(&path), Some(&FileChange::Delete));
     }
 
+    #[tokio::test]
+    async fn file_tree_at_combines_revision_history() {
+        let (repo, _) = repo_with_head().await;
+        let initial = blake3::hash(b"initial");
+        let first = blake3::hash(b"first");
+        let second = blake3::hash(b"second");
+        let foo = RepoPath::try_from("foo.txt").unwrap();
+        let bar = RepoPath::try_from("bar.txt").unwrap();
+        let foo_file = store_file(&repo, b"foo").await;
+        let bar_file = store_file(&repo, b"bar").await;
+
+        store_revision_changes(&repo, initial, Digest::zero(), std::iter::empty()).await;
+        store_revision_changes(
+            &repo,
+            first,
+            initial,
+            [(foo.clone(), FileChange::Create(foo_file))],
+        )
+        .await;
+        store_revision_changes(
+            &repo,
+            second,
+            first,
+            [(bar.clone(), FileChange::Create(bar_file))],
+        )
+        .await;
+
+        let tree = repo.file_tree_at(&second).await.unwrap();
+
+        assert_eq!(tree.read_only_view().len(), 2);
+        assert_eq!(tree.read_only_view().get(&foo), Some(&foo_file));
+        assert_eq!(tree.read_only_view().get(&bar), Some(&bar_file));
+    }
+
     async fn repo_with_head() -> (Repo<Digest, TestStorage>, Digest) {
         // Initialize manually to avoid hitting todo forn ow
         let storage = Arc::new(TestStorage::new());
@@ -680,5 +757,49 @@ mod tests {
         Changeset {
             changeset: changes.into_read_only(),
         }
+    }
+
+    async fn store_revision_changes(
+        repo: &Repo<Digest, TestStorage>,
+        revision: Digest,
+        parent: Digest,
+        changes: impl IntoIterator<Item = (RepoPath, FileChange<Digest>)>,
+    ) {
+        let changes: DashMap<_, _> = changes.into_iter().collect();
+        let changeset = Changeset {
+            changeset: changes.into_read_only(),
+        };
+        let changeset_id = changeset.to_digest();
+
+        repo.changesets
+            .insert(&changeset_id, changeset)
+            .await
+            .unwrap();
+        repo.revision_headers
+            .set(
+                &revision,
+                RevisionHeader {
+                    changeset: changeset_id,
+                    parent,
+                },
+            )
+            .await
+            .unwrap();
+    }
+
+    async fn store_file(repo: &Repo<Digest, TestStorage>, content: &[u8]) -> Digest {
+        let file = File {
+            content: content.into(),
+            executable_status: false,
+        };
+        let file_id = file.to_digest();
+        <TestStorage as crate::storage::Storage<Digest, File>>::store(
+            repo.storage.as_ref(),
+            &file_id,
+            &file,
+        )
+        .await
+        .unwrap();
+        file_id
     }
 }
