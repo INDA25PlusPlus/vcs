@@ -111,13 +111,26 @@ where
         Repo::load(self.storage.clone()).await
     }
 
+    pub(crate) fn file_system(&self) -> DiskFileSystem {
+        DiskFileSystem::new(PathBuf::from(".").into_boxed_path())
+            .with_ignored_root_entries([STORAGE_PATH])
+    }
+
     pub(crate) async fn refresh_pending_changes(
         &self,
         repo: &Repo<Digest, S>,
     ) -> Result<(), CliError> {
-        let mut file_system = DiskFileSystem::new(PathBuf::from(".").into_boxed_path())
-            .with_ignored_root_entries([STORAGE_PATH]);
-        repo.refresh_pending_changes(&mut file_system, &MyersDiff)
+        let mut file_system = self.file_system();
+        self.refresh_pending_changes_with(repo, &mut file_system)
+            .await
+    }
+
+    pub(crate) async fn refresh_pending_changes_with(
+        &self,
+        repo: &Repo<Digest, S>,
+        file_system: &mut DiskFileSystem,
+    ) -> Result<(), CliError> {
+        repo.refresh_pending_changes(file_system, &MyersDiff)
             .await
             .map_err(|err| CliError::StorageError(err.to_string()))
     }

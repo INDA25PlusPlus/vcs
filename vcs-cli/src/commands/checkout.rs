@@ -6,9 +6,11 @@ where
     S: AppStorage,
 {
     let repo = app.open_repo().await;
-    app.refresh_pending_changes(&repo).await?;
+    let mut file_system = app.file_system();
+    app.refresh_pending_changes_with(&repo, &mut file_system)
+        .await?;
 
-    repo.checkout(revision).await?;
+    repo.checkout(&mut file_system, revision).await?;
 
     Ok(())
 }

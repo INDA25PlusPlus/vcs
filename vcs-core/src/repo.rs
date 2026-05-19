@@ -6,11 +6,8 @@ use crate::changeset::file::{FileChangeError, FileDiff};
 use crate::changeset::{Changeset, ChangesetRef, combine_changesets};
 use crate::crypto::digest::{CryptoDigest, CryptoHash};
 use crate::crypto::signature::SignContext;
-<<<<<<< HEAD
 use crate::diff::diff_policy::{DiffPolicy, MyersDiff};
 use crate::diff::hunk::HunkCollectionError;
-use crate::fs;
-use crate::fs::disk::DiskFileSystem;
 use crate::fs::map_ops::DashMapGuard;
 use crate::fs::path::RepoPath;
 use crate::fs::{
@@ -25,7 +22,6 @@ use crate::storage::{StorageError, cache::FrozenCache};
 use serde::{Deserialize, Serialize};
 use std::error::Error;
 use std::hash::Hash;
-use std::ops::Deref;
 use std::sync::Arc;
 use tokio::try_join;
 
@@ -214,13 +210,14 @@ where
         Ok(self.head.update(&(), async |_old_head| Head(rev)).await?)
     }
 
-    pub async fn checkout(&self, rev: RevisionRef<D>) -> RepoResult<(), S::RepoStorageError> {
-        type F = DiskFileSystem;
-
-        fn temp_fs() -> &'static mut F {
-            todo!()
-        }
-
+    pub async fn checkout<F>(
+        &self,
+        file_system: &mut F,
+        rev: RevisionRef<D>,
+    ) -> RepoResult<(), S::RepoStorageError>
+    where
+        F: FileSystem,
+    {
         fn temp_diff_policy() -> &'static MyersDiff {
             static DIFF_POLICY: MyersDiff = MyersDiff;
 
@@ -236,23 +233,23 @@ where
         // troligtvis måste vi lagra en Arc<tokio::sync::Mutex<F>>, där F: FileSystem, i Repo, och
         // sedan locka den här när vi vill komma åt fs. detta för att &mut krävs för att säkerställa
         // safe concerrency inom FileSystem.
-        let fs = temp_fs();
         let diff_policy = temp_diff_policy();
 
         let old_head = self.head().await?;
         let old_head_tree = temp_traverse_construct_file_tree_naive(&old_head).await;
-        let fs_result: FileSystemReadResult<(), fs::disk::Error, S::RepoStorageError> = self
+        let fs_result: FileSystemReadResult<(), F::Error, S::RepoStorageError> = self
             .pending_changes
             .try_update(&old_head, async |pending| {
                 let mut pending = pending.clone();
-                fs.update_pending_changes(
-                    diff_policy,
-                    self.storage.deref(),
-                    &old_head_tree,
-                    &mut pending,
-                    true,
-                )
-                .await?;
+                file_system
+                    .update_pending_changes(
+                        diff_policy,
+                        self.storage.as_ref(),
+                        &old_head_tree,
+                        &mut pending,
+                        true,
+                    )
+                    .await?;
                 Ok(pending)
             })
             .await?;
@@ -265,10 +262,11 @@ where
         }
 
         let new_head_tree = temp_traverse_construct_file_tree_naive(&rev).await;
-        let fs_result: FileSystemWriteResult<(), fs::disk::Error, S::RepoStorageError> = self
+        let fs_result: FileSystemWriteResult<(), F::Error, S::RepoStorageError> = self
             .pending_changes
             .get(&rev, async |pending| {
-                fs.apply_pending_changes(self.storage.deref(), &new_head_tree, pending, true)
+                file_system
+                    .apply_pending_changes(self.storage.as_ref(), &new_head_tree, pending, true)
                     .await
             })
             .await?;
