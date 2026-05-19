@@ -10,7 +10,9 @@ where
     app.refresh_pending_changes_with(&repo, &mut file_system)
         .await?;
 
-    repo.checkout(&mut file_system, revision).await?;
+    repo.checkout(&mut file_system, revision)
+        .await
+        .map_err(|err| CliError::StorageError(err.to_string()))?;
 
     Ok(())
 }

@@ -10,10 +10,7 @@ use crate::diff::diff_policy::{DiffPolicy, MyersDiff};
 use crate::diff::hunk::HunkCollectionError;
 use crate::fs::map_ops::DashMapGuard;
 use crate::fs::path::RepoPath;
-use crate::fs::{
-    FileSystem, FileSystemReadError, FileSystemReadResult, FileSystemWriteResult, FileTree,
-    FileTreeError,
-};
+use crate::fs::{FileSystem, FileSystemReadError, FileSystemWriteError, FileTree, FileTreeError};
 use crate::repo::repo_storage::RepoStorage;
 use crate::revision::timestamp::Timestamp;
 use crate::revision::{Patch, Revision, RevisionHeader, RevisionMetadata, RevisionRef};
@@ -120,6 +117,16 @@ pub enum RefreshPendingChangesError<FE, SE> {
     FileSystem(#[from] FileSystemReadError<FE, SE>),
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum CheckoutError<FE, SE> {
+    #[error("{0}")]
+    Repo(#[from] RepoError<SE>),
+    #[error("{0}")]
+    FileSystemRead(#[from] FileSystemReadError<FE, SE>),
+    #[error("{0}")]
+    FileSystemWrite(#[from] FileSystemWriteError<FE, SE>),
+}
+
 impl<E> From<StorageError<E>> for RepoError<E> {
     fn from(value: StorageError<E>) -> Self {
         match value {
@@ -216,7 +223,7 @@ where
         &self,
         file_system: &mut F,
         rev: RevisionRef<D>,
-    ) -> RepoResult<(), S::RepoStorageError>
+    ) -> Result<(), CheckoutError<F::Error, S::RepoStorageError>>
     where
         F: FileSystem,
     {
@@ -233,7 +240,7 @@ where
 
         let old_head = self.head().await?;
         let old_head_tree = self.file_tree_at(&old_head).await?;
-        let fs_result: FileSystemReadResult<(), F::Error, S::RepoStorageError> = self
+        let fs_result: Result<(), FileSystemReadError<F::Error, S::RepoStorageError>> = self
             .pending_changes
             .try_update(&old_head, async |pending| {
                 let mut pending = pending.clone();
@@ -248,29 +255,24 @@ where
                     .await?;
                 Ok(pending)
             })
-            .await?;
-        match fs_result {
-            Ok(ok) => {}
-            Err(FileSystemReadError::FileSystemError(fs_err)) => todo!(),
-            Err(FileSystemReadError::LoadError(StorageError::InternalError(err))) => todo!(),
-            Err(FileSystemReadError::LoadError(StorageError::MissingObject)) => todo!(),
-            Err(FileSystemReadError::StoreError(storage_err)) => todo!(),
-        }
+            .await
+            .map_err(RepoError::from)?;
+        fs_result?;
 
         let new_head_tree = self.file_tree_at(&rev).await?;
-        let fs_result: FileSystemWriteResult<(), F::Error, S::RepoStorageError> = self
+        let fs_result: Result<(), FileSystemWriteError<F::Error, S::RepoStorageError>> = self
             .pending_changes
             .get(&rev, async |pending| {
                 file_system
                     .apply_pending_changes(self.storage.as_ref(), &new_head_tree, pending, true)
                     .await
             })
-            .await?;
-        match fs_result {
-            Ok(ok) => {}
-            Err(err) => todo!("på samma sätt"),
-        }
-        self.set_head(rev).await
+            .await
+            .map_err(RepoError::from)?;
+        fs_result?;
+
+        self.set_head(rev).await?;
+        Ok(())
     }
 
     async fn file_tree_at(
