@@ -29,6 +29,6 @@ where
             committer_message,
         } => commit::run(app, author_message, committer_message).await,
         Command::Checkout { revision } => checkout::run(app, revision).await,
-        Command::Restore => restore::run(app).await,
+        Command::Restore { paths } => restore::run(app, &paths).await,
     }
 }

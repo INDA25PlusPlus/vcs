@@ -248,13 +248,21 @@ where
     pub async fn restore<F>(
         &self,
         file_system: &mut F,
+        paths: &[RepoPath],
     ) -> Result<(), RestoreError<F::Error, S::RepoStorageError>>
     where
         F: FileSystem,
     {
         let head = self.head().await?;
         let head_tree = self.file_tree_at(&head).await?;
-        let pending = PendingChanges::empty();
+        let mut pending = self.pending_changes_at(&head).await?;
+
+        {
+            let pending_changes = DashMapGuard::new(&mut pending.0.changeset);
+            for path in paths {
+                pending_changes.remove(path);
+            }
+        }
 
         file_system
             .apply_pending_changes(self.storage.as_ref(), &head_tree, &pending, true)
