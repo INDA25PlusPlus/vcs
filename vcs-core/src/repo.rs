@@ -260,15 +260,11 @@ where
         fs_result?;
 
         let new_head_tree = self.file_tree_at(&rev).await?;
-        let fs_result: Result<(), FileSystemWriteError<F::Error, S::RepoStorageError>> = self
-            .pending_changes
-            .get(&rev, async |pending| {
-                file_system
-                    .apply_pending_changes(self.storage.as_ref(), &new_head_tree, pending, true)
-                    .await
-            })
-            .await
-            .map_err(RepoError::from)?;
+        let pending = self.pending_changes_at(&rev).await?;
+        let fs_result: Result<(), FileSystemWriteError<F::Error, S::RepoStorageError>> =
+            file_system
+                .apply_pending_changes(self.storage.as_ref(), &new_head_tree, &pending, true)
+                .await;
         fs_result?;
 
         self.set_head(rev).await?;
