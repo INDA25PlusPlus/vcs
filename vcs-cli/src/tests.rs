@@ -65,3 +65,10 @@ fn parses_checkout_revision() {
         Command::Checkout { revision: parsed } if parsed == revision
     ));
 }
+
+#[test]
+fn parses_restore() {
+    let args = Args::try_parse_from(["vcs", "restore"]).unwrap();
+
+    assert!(matches!(args.command, Command::Restore));
+}

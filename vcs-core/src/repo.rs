@@ -125,6 +125,14 @@ pub enum CheckoutError<FE, SE> {
     FileSystemWrite(#[from] FileSystemWriteError<FE, SE>),
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum RestoreError<FE, SE> {
+    #[error("{0}")]
+    Repo(#[from] RepoError<SE>),
+    #[error("{0}")]
+    FileSystemWrite(#[from] FileSystemWriteError<FE, SE>),
+}
+
 impl<E> From<StorageError<E>> for RepoError<E> {
     fn from(value: StorageError<E>) -> Self {
         match value {
@@ -234,6 +242,29 @@ where
         fs_result?;
 
         self.set_head(rev).await?;
+        Ok(())
+    }
+
+    pub async fn restore<F>(
+        &self,
+        file_system: &mut F,
+    ) -> Result<(), RestoreError<F::Error, S::RepoStorageError>>
+    where
+        F: FileSystem,
+    {
+        let head = self.head().await?;
+        let head_tree = self.file_tree_at(&head).await?;
+        let pending = PendingChanges::empty();
+
+        file_system
+            .apply_pending_changes(self.storage.as_ref(), &head_tree, &pending, true)
+            .await?;
+
+        self.pending_changes
+            .set(&head, pending)
+            .await
+            .map_err(RepoError::from)?;
+
         Ok(())
     }
 
