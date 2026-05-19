@@ -111,7 +111,7 @@ where
         Repo::load(self.storage.clone()).await
     }
 
-    pub(crate) fn file_system(&self) -> DiskFileSystem {
+    pub(crate) fn new_file_system(&self) -> DiskFileSystem {
         DiskFileSystem::new(PathBuf::from(".").into_boxed_path())
             .with_ignored_root_entries([STORAGE_PATH])
     }
@@ -120,7 +120,7 @@ where
         &self,
         repo: &Repo<Digest, S>,
     ) -> Result<(), CliError> {
-        self.refresh_pending_changes_with(repo, &mut self.file_system())
+        self.refresh_pending_changes_with(repo, &mut self.new_file_system())
             .await
     }
 
