@@ -61,6 +61,8 @@ pub(crate) enum Command {
     },
     /// Switch to another revision.
     Checkout { revision: Digest },
+    /// Restore pending changes.
+    Restore,
 }
 
 #[tokio::main]
