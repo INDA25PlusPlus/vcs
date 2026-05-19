@@ -1,4 +1,4 @@
-use crate::{App, Digest, short_digest};
+use crate::{App, Digest};
 use vcs_core::crypto::digest::CryptoDigest;
 use vcs_core::repo::Head;
 use vcs_core::revision::{FORMAT_VERSION, RevisionHeader, RevisionMetadata};
@@ -29,7 +29,7 @@ async fn log_walks_revision_parents_from_head() {
         .map(|revision_id| {
             format!(
                 "revision {}\n    committer: <uncommitted>\n\n",
-                short_digest(&revision_id)
+                revision_id.to_hex()
             )
         })
         .collect::<String>();
