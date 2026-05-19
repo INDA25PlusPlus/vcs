@@ -342,14 +342,7 @@ where
         P: DiffPolicy,
     {
         let head = self.head().await?;
-        let header = self.get_revision_header(&head).await?;
-        let head_changeset = self
-            .changesets
-            .get(&header.changeset)
-            .await
-            .map_err(RepoError::from)?
-            .clone();
-        let head_tree = FileTree::try_from(head_changeset)?;
+        let head_tree = self.file_tree_at(&head).await?;
         let mut pending = self.pending_changes_at(&head).await?;
 
         file_system
