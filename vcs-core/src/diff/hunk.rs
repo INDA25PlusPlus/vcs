@@ -99,24 +99,28 @@ impl HunkCollection {
         out.reserve(2 * source.len());
         let source_len = source.len();
 
-        let mut index = 0;
+        let mut index = 0usize;
+        let mut previous_deleted_len = 0usize;
         for hunk in &self.hunks {
-            if hunk.offset > 0 {
-                let hunk_offset: usize = hunk
-                    .offset
-                    .try_into()
-                    .expect("hunk offset should fit into usize");
-                let keep_end = index + hunk_offset;
-                if keep_end > source_len {
-                    return Err(HunkCollectionError::InvalidHunk);
-                }
-                out.extend_from_slice(&source[index..keep_end]);
+            let offset = usize::try_from(hunk.offset).expect("hunk offset should fit into usize");
+            let delete_len =
+                usize::try_from(hunk.len_before).expect("hunk delete length should fit into usize");
+            // Hunk offsets include the previous delete span; subtract it to get the source keep.
+            let keep_len = offset.saturating_sub(previous_deleted_len);
+            let keep_end = index
+                .checked_add(keep_len)
+                .ok_or(HunkCollectionError::InvalidHunk)?;
+            let delete_end = keep_end
+                .checked_add(delete_len)
+                .ok_or(HunkCollectionError::InvalidHunk)?;
+
+            if delete_end > source_len {
+                return Err(HunkCollectionError::InvalidHunk);
             }
-            let index_offset: usize = (hunk.offset + hunk.len_before)
-                .try_into()
-                .expect("index offset should fit into usize");
-            index += index_offset;
+            out.extend_from_slice(&source[index..keep_end]);
             out.extend_from_slice(&hunk.content_after);
+            index = delete_end;
+            previous_deleted_len = delete_len;
         }
         out.extend_from_slice(&source[index..]);
 
@@ -318,6 +322,27 @@ mod tests {
                     content_after: Box::from("3456".as_bytes()),
                 },
             ]))
+        );
+    }
+
+    #[test]
+    fn test_apply_hunks_after_delete() {
+        let diff = HunkCollection::new(Box::from([
+            Hunk {
+                offset: 0,
+                len_before: 4,
+                content_after: Box::from("Hello!\nN".as_bytes()),
+            },
+            Hunk {
+                offset: 5,
+                len_before: 1,
+                content_after: Box::from(" way".as_bytes()),
+            },
+        ]));
+
+        assert_eq!(
+            diff.apply(b"Hello!\n").unwrap().as_ref(),
+            b"Hello!\nNo way\n"
         );
     }
 
