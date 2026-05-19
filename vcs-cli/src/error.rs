@@ -39,6 +39,7 @@ impl<E: Display> From<RepoError<E>> for CliError {
             RepoError::NoStagedChanges => CliError::NoStagedChanges,
             RepoError::InvalidFileDiff(err) => CliError::InvalidFileDiff(err.to_string()),
             RepoError::InvalidFileChange => CliError::InvalidFileChange,
+            RepoError::InvalidFileTree(err) => CliError::StorageError(err.to_string()),
             RepoError::StorageError(err) => CliError::StorageError(err.to_string()),
         }
     }
