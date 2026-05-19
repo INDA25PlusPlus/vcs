@@ -8,7 +8,7 @@ where
     let repo = app.open_repo().await;
     app.refresh_pending_changes(&repo).await?;
 
-    repo.set_head(revision).await?;
+    repo.checkout(revision).await?;
 
     Ok(())
 }
