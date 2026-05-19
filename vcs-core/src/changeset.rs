@@ -21,12 +21,27 @@ pub struct Changeset<D: CryptoDigest + CryptoHash> {
 pub type ChangesetRef<D> = D;
 
 impl<D: CryptoDigest + CryptoHash> Changeset<D> {
-    pub(crate) fn empty() -> Changeset<D> {
+    pub fn empty() -> Changeset<D> {
         Changeset::default()
+    }
+
+    pub fn from_changes(
+        changes: impl IntoIterator<Item = (RepoPath, FileChange<D>)>,
+    ) -> Changeset<D> {
+        Changeset {
+            changeset: changes
+                .into_iter()
+                .collect::<DashMap<_, _>>()
+                .into_read_only(),
+        }
     }
 
     pub fn is_empty(&self) -> bool {
         self.changeset.is_empty()
+    }
+
+    pub fn len(&self) -> usize {
+        self.changeset.len()
     }
 }
 

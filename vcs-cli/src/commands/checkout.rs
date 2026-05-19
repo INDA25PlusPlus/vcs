@@ -1,5 +1,6 @@
 use crate::error::CliError;
 use crate::{App, AppStorage, Digest};
+use vcs_core::diff::diff_policy::MyersDiff;
 
 pub async fn run<S>(app: &App<S>, revision: Digest) -> Result<(), CliError>
 where
@@ -10,7 +11,7 @@ where
     app.refresh_pending_changes_with(&repo, &mut file_system)
         .await?;
 
-    repo.checkout(&mut file_system, revision)
+    repo.checkout(&mut file_system, &MyersDiff, &revision)
         .await
         .map_err(|err| CliError::StorageError(err.to_string()))?;
 

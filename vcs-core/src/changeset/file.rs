@@ -1,4 +1,5 @@
 use crate::crypto::digest::{CryptoDigest, CryptoHash};
+use crate::diff::diff_policy::DiffPolicy;
 use crate::diff::hunk::{HunkCollection, HunkCollectionError};
 use crate::repo::repo_storage::RepoStorage;
 use crate::storage::{Storage, StorageError};
@@ -39,6 +40,58 @@ pub enum FileChangeError<E> {
     StorageError(StorageError<E>),
     InvalidFileDiff(HunkCollectionError),
     InvalidFileChange,
+}
+
+impl File {
+    pub fn new(content: impl Into<Box<[u8]>>, executable_status: bool) -> File {
+        File {
+            content: content.into(),
+            executable_status,
+        }
+    }
+
+    pub fn content(&self) -> &[u8] {
+        &self.content
+    }
+
+    pub fn executable_status(&self) -> bool {
+        self.executable_status
+    }
+}
+
+impl FileDiff {
+    pub fn new(hunks: HunkCollection, executable_status: bool) -> FileDiff {
+        FileDiff {
+            hunks,
+            executable_status,
+        }
+    }
+
+    pub fn between(
+        diff_policy: &impl DiffPolicy,
+        file_before: &File,
+        file_after: &File,
+    ) -> FileDiff {
+        let hunks = if file_before.content == file_after.content {
+            HunkCollection::default()
+        } else {
+            diff_policy.diff(&file_before.content, &file_after.content)
+        };
+
+        FileDiff {
+            hunks,
+            executable_status: file_after.executable_status,
+        }
+    }
+
+    pub fn apply(&self, file_before: &File) -> Result<File, HunkCollectionError> {
+        let content = self.hunks.apply(&file_before.content)?;
+
+        Ok(File {
+            content,
+            executable_status: self.executable_status,
+        })
+    }
 }
 
 pub async fn combine_file_diffs<'a, D, S>(

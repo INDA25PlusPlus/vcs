@@ -8,9 +8,9 @@ use crate::fs::map_ops::{
 };
 use crate::fs::path::RepoPath;
 use crate::fs::{
-    FileSystem, FileSystemReadError, FileSystemReadResult, FileSystemWriteError,
-    FileSystemWriteResult, FileTree, update_create_file_change, update_delete_file_change,
-    update_modify_file_change,
+    FileSystem, FileSystemError, FileSystemReadError, FileSystemReadResult, FileSystemResult,
+    FileSystemWriteError, FileSystemWriteResult, FileTree, update_create_file_change,
+    update_delete_file_change, update_modify_file_change,
 };
 use crate::repo::PendingChanges;
 use crate::repo::repo_storage::RepoStorage;
@@ -36,6 +36,13 @@ impl MemoryFileSystem {
         MemoryFileSystem {
             files: DashMap::new(),
         }
+    }
+
+    pub fn read(&self, path: &RepoPath) -> FileSystemResult<File, Infallible> {
+        self.files
+            .get(path)
+            .map(|entry| entry.file.clone())
+            .ok_or(FileSystemError::MissingFile)
     }
 }
 

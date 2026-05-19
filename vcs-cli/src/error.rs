@@ -10,6 +10,9 @@ pub(crate) enum CliError {
     InvalidFileDiff(String),
     InvalidFileChange,
     MissingAncestor,
+    InvalidRevisionHistory,
+    InvalidChangeset,
+    HunkError(String),
     StorageError(String),
     InvalidPath(PathBuf),
     KeyGeneration,
@@ -23,6 +26,9 @@ impl Display for CliError {
             CliError::InvalidFileDiff(err) => write!(f, "invalid file diff: {err}"),
             CliError::InvalidFileChange => write!(f, "invalid file change sequence"),
             CliError::MissingAncestor => write!(f, "failed to find common ancestor"),
+            CliError::InvalidRevisionHistory => write!(f, "invalid revision history"),
+            CliError::InvalidChangeset => write!(f, "invalid changeset"),
+            CliError::HunkError(err) => write!(f, "{err}"),
             CliError::StorageError(err) => write!(f, "{err}"),
             CliError::InvalidPath(path) => {
                 write!(f, "invalid repository path '{}'", path.display())
@@ -43,6 +49,9 @@ impl<E: Display> From<RepoError<E>> for CliError {
             RepoError::InvalidFileChange => CliError::InvalidFileChange,
             RepoError::InvalidFileTree(err) => CliError::StorageError(err.to_string()),
             RepoError::MissingAncestor => CliError::MissingAncestor,
+            RepoError::InvalidRevisionHistory => CliError::InvalidRevisionHistory,
+            RepoError::InvalidChangeset => CliError::InvalidChangeset,
+            RepoError::HunkError(err) => CliError::HunkError(err.to_string()),
             RepoError::StorageError(err) => CliError::StorageError(err.to_string()),
         }
     }

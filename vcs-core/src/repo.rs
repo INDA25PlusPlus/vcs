@@ -2,20 +2,21 @@ pub mod repo_storage;
 
 use crypto_hash_derive::CryptoHash;
 
-use crate::changeset::file::{FileChangeError, FileDiff};
+use crate::changeset::file::{File, FileChange, FileChangeError, FileDiff, FileDiffRef, FileRef};
 use crate::changeset::{Changeset, ChangesetRef, combine_changesets};
 use crate::crypto::digest::{CryptoDigest, CryptoHash};
 use crate::crypto::signature::SignContext;
 use crate::diff::diff_policy::DiffPolicy;
 use crate::diff::hunk::HunkCollectionError;
-use crate::fs::map_ops::DashMapGuard;
+use crate::fs::map_ops::{DashMapGuard, OuterJoinEntry, outer_join};
 use crate::fs::path::RepoPath;
 use crate::fs::{FileSystem, FileSystemReadError, FileSystemWriteError, FileTree, FileTreeError};
 use crate::repo::repo_storage::RepoStorage;
 use crate::revision::timestamp::Timestamp;
 use crate::revision::{Patch, Revision, RevisionHeader, RevisionMetadata, RevisionRef};
 use crate::storage::cache::MutableCache;
-use crate::storage::{StorageError, cache::FrozenCache};
+use crate::storage::{Storage, StorageError, cache::FrozenCache};
+use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use std::error::Error;
 use std::hash::Hash;
@@ -105,6 +106,12 @@ pub enum RepoError<E> {
     InvalidFileTree(FileTreeError),
     #[error("failed to find ancestor in database")]
     MissingAncestor,
+    #[error("invalid revision history")]
+    InvalidRevisionHistory,
+    #[error("invalid changeset")]
+    InvalidChangeset,
+    #[error("hunk error: {0}")]
+    HunkError(HunkCollectionError),
     #[error("internal storage error: '{0}'")]
     StorageError(E),
 }
@@ -119,12 +126,14 @@ pub enum RefreshPendingChangesError<FE, SE> {
     FileSystem(#[from] FileSystemReadError<FE, SE>),
 }
 
+pub type CheckoutResult<T, SE, FE> = Result<T, CheckoutError<SE, FE>>;
+
 #[derive(Debug, thiserror::Error)]
-pub enum CheckoutError<FE, SE> {
+pub enum CheckoutError<SE, FE> {
     #[error("{0}")]
     Repo(#[from] RepoError<SE>),
     #[error("{0}")]
-    FileSystemWrite(#[from] FileSystemWriteError<FE, SE>),
+    FileSystemWrite(FileSystemWriteError<FE, SE>),
 }
 
 impl<E> From<StorageError<E>> for RepoError<E> {
@@ -219,73 +228,6 @@ where
         Ok(self.head.update(&(), async |_old_head| Head(rev)).await?)
     }
 
-    pub async fn checkout<F>(
-        &self,
-        file_system: &mut F,
-        rev: RevisionRef<D>,
-    ) -> Result<(), CheckoutError<F::Error, S::RepoStorageError>>
-    where
-        F: FileSystem,
-    {
-        let new_head_tree = self.file_tree_at(&rev).await?;
-        let pending = self.pending_changes_at(&rev).await?;
-        let fs_result: Result<(), FileSystemWriteError<F::Error, S::RepoStorageError>> =
-            file_system
-                .apply_pending_changes(self.storage.as_ref(), &new_head_tree, &pending, true)
-                .await;
-        fs_result?;
-
-        self.set_head(rev).await?;
-        Ok(())
-    }
-
-    async fn file_tree_at(
-        &self,
-        rev: &RevisionRef<D>,
-    ) -> RepoResult<FileTree<D>, S::RepoStorageError> {
-        let mut rev = rev.clone();
-        let mut changesets = Vec::new();
-
-        loop {
-            let header = self.get_revision_header(&rev).await?;
-            let changeset = self
-                .changesets
-                .get(&header.changeset)
-                .await
-                .map_err(RepoError::from)?
-                .clone();
-            changesets.push(changeset);
-
-            if header.parent == D::zero() {
-                break;
-            }
-            rev = header.parent;
-        }
-
-        changesets.reverse();
-        let combined_changeset = combine_changesets(&changesets, self.storage.as_ref())
-            .await
-            .map_err(Self::file_change_error_to_repo_error)?;
-        let combined_changeset = self
-            .changesets
-            .get(&combined_changeset)
-            .await
-            .map_err(RepoError::from)?
-            .clone();
-
-        FileTree::try_from(combined_changeset).map_err(RepoError::InvalidFileTree)
-    }
-
-    fn file_change_error_to_repo_error(
-        err: FileChangeError<S::RepoStorageError>,
-    ) -> RepoError<S::RepoStorageError> {
-        match err {
-            FileChangeError::StorageError(err) => RepoError::from(err),
-            FileChangeError::InvalidFileDiff(err) => RepoError::InvalidFileDiff(err),
-            FileChangeError::InvalidFileChange => RepoError::InvalidFileChange,
-        }
-    }
-
     async fn pending_changes_at(
         &self,
         head: &RevisionRef<D>,
@@ -344,14 +286,7 @@ where
         P: DiffPolicy,
     {
         let head = self.head().await?;
-        let header = self.get_revision_header(&head).await?;
-        let head_changeset = self
-            .changesets
-            .get(&header.changeset)
-            .await
-            .map_err(RepoError::from)?
-            .clone();
-        let head_tree = FileTree::try_from(head_changeset)?;
+        let head_tree = self.file_tree_at_revision(&head).await?;
         let mut pending = self.pending_changes_at(&head).await?;
 
         file_system
@@ -443,6 +378,38 @@ where
         ))
     }
 
+    pub async fn get_file(&self, file_ref: &FileRef<D>) -> RepoResult<File, S::RepoStorageError> {
+        let file = <S as Storage<FileRef<D>, File>>::load(self.storage.as_ref(), file_ref).await?;
+
+        Ok(file)
+    }
+
+    pub async fn insert_file(&self, file: File) -> RepoResult<FileRef<D>, S::RepoStorageError> {
+        let file_ref = file.to_digest();
+        <S as Storage<FileRef<D>, File>>::store(self.storage.as_ref(), &file_ref, &file).await?;
+
+        Ok(file_ref)
+    }
+
+    pub async fn get_file_diff(
+        &self,
+        file_diff_ref: &FileDiffRef<D>,
+    ) -> RepoResult<FileDiff, S::RepoStorageError> {
+        let file_diff = self.file_diffs.get(file_diff_ref).await?.clone();
+
+        Ok(file_diff)
+    }
+
+    pub async fn insert_file_diff(
+        &self,
+        file_diff: FileDiff,
+    ) -> RepoResult<FileDiffRef<D>, S::RepoStorageError> {
+        let file_diff_ref = file_diff.to_digest();
+        self.file_diffs.insert(&file_diff_ref, file_diff).await?;
+
+        Ok(file_diff_ref)
+    }
+
     pub async fn get_revision_header(
         &self,
         revision_id: &RevisionRef<D>,
@@ -481,7 +448,7 @@ where
         // Verify repo diff exists in storage
         self.changesets.get(&header.changeset).await?;
 
-        // TODO: Check that `header.repo_diff` applies cleanly to `header.parent`.
+        // TODO: Check that `header.changeset` applies cleanly to `header.parent`.
 
         let revision_id = revision.to_digest();
         let (header, metadata) = revision.into_parts();
@@ -563,6 +530,83 @@ where
         Ok(revision_id)
     }
 
+    pub async fn insert_revision_from_changeset(
+        &self,
+        parent: &RevisionRef<D>,
+        changeset: Changeset<D>,
+    ) -> RepoResult<RevisionRef<D>, S::RepoStorageError> {
+        let parent_header = self.get_revision_header(parent).await?;
+        let depth = parent_header.depth + 1;
+        let changeset_ref = self.insert_changeset(changeset).await?;
+        let revision = Revision::from_parts(parent.clone(), changeset_ref, depth, Box::new([]));
+
+        self.insert_revision(revision).await
+    }
+
+    pub async fn file_tree_at_revision(
+        &self,
+        revision_id: &RevisionRef<D>,
+    ) -> RepoResult<FileTree<D>, S::RepoStorageError> {
+        let files = DashMap::new();
+
+        for header in self.revision_headers_from_initial(revision_id).await? {
+            let changeset = self.changesets.get(&header.changeset).await?.clone();
+            self.apply_changeset_to_files(&files, &changeset).await?;
+        }
+
+        Ok(FileTree::from_files(files))
+    }
+
+    pub async fn diff_revisions<P: DiffPolicy>(
+        &self,
+        diff_policy: &P,
+        from: &RevisionRef<D>,
+        to: &RevisionRef<D>,
+    ) -> RepoResult<Changeset<D>, S::RepoStorageError> {
+        let from_tree = self.file_tree_at_revision(from).await?;
+        let to_tree = self.file_tree_at_revision(to).await?;
+
+        self.diff_file_trees(diff_policy, &from_tree, &to_tree)
+            .await
+    }
+
+    pub async fn checkout<F, P>(
+        &self,
+        file_system: &mut F,
+        diff_policy: &P,
+        revision_id: &RevisionRef<D>,
+    ) -> CheckoutResult<(), S::RepoStorageError, F::Error>
+    where
+        F: FileSystem,
+        P: DiffPolicy,
+    {
+        // NOTE: Currently overwrites all local pending and staged changes
+        let current_head = self.head().await?;
+        let head_tree = self.file_tree_at_revision(&current_head).await?;
+        let checkout_changes = PendingChanges(
+            self.diff_revisions(diff_policy, &current_head, revision_id)
+                .await?,
+        );
+
+        file_system
+            .apply_pending_changes(self.storage.as_ref(), &head_tree, &checkout_changes, true)
+            .await
+            .map_err(CheckoutError::FileSystemWrite)?;
+
+        // TODO: Retrieve the pending_changes and the staged_changes instead of making them empty
+        self.pending_changes
+            .set(revision_id, PendingChanges::empty())
+            .await
+            .map_err(|err| CheckoutError::Repo(RepoError::StorageError(err)))?;
+        self.staged_changes
+            .set(revision_id, StagedChanges::empty())
+            .await
+            .map_err(|err| CheckoutError::Repo(RepoError::StorageError(err)))?;
+        self.set_head(revision_id.clone()).await?;
+
+        Ok(())
+    }
+
     pub async fn get_revisions_lca(
         &self,
         id_1: &RevisionRef<D>,
@@ -625,6 +669,126 @@ where
             self.get_revision_header(id_2),
         )
     }
+
+    async fn revision_headers_from_initial(
+        &self,
+        revision_id: &RevisionRef<D>,
+    ) -> RepoResult<Vec<RevisionHeader<D>>, S::RepoStorageError> {
+        let mut id = revision_id.clone();
+        let mut headers = Vec::new();
+        let mut child_depth = None;
+
+        loop {
+            let header = self.get_revision_header(&id).await?;
+            if child_depth.is_some_and(|depth| header.depth >= depth) {
+                return Err(RepoError::InvalidRevisionHistory);
+            }
+
+            let depth = header.depth;
+            let parent = header.parent.clone();
+            headers.push(header);
+
+            if depth == 0 {
+                break;
+            }
+
+            id = parent;
+            child_depth = Some(depth);
+        }
+
+        headers.reverse();
+        Ok(headers)
+    }
+
+    async fn apply_changeset_to_files(
+        &self,
+        files: &DashMap<RepoPath, FileRef<D>>,
+        changeset: &Changeset<D>,
+    ) -> RepoResult<(), S::RepoStorageError> {
+        let changes: Vec<_> = changeset
+            .changeset
+            .iter()
+            .map(|(path, change)| (path.clone(), change.clone()))
+            .collect();
+
+        for (path, change) in changes {
+            match change {
+                FileChange::Create(file_ref) => {
+                    if files.contains_key(&path) {
+                        return Err(RepoError::InvalidChangeset);
+                    }
+                    files.insert(path, file_ref);
+                }
+                FileChange::Modify(file_diff_ref) => {
+                    let Some((_, file_before_ref)) = files.remove(&path) else {
+                        return Err(RepoError::InvalidChangeset);
+                    };
+                    let file_before = self.get_file(&file_before_ref).await?;
+                    let file_diff = self.get_file_diff(&file_diff_ref).await?;
+                    let file_after = file_diff
+                        .apply(&file_before)
+                        .map_err(RepoError::HunkError)?;
+                    let file_after_ref = self.insert_file(file_after).await?;
+                    files.insert(path, file_after_ref);
+                }
+                FileChange::Delete => {
+                    if files.remove(&path).is_none() {
+                        return Err(RepoError::InvalidChangeset);
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn diff_file_trees<P: DiffPolicy>(
+        &self,
+        diff_policy: &P,
+        from: &FileTree<D>,
+        to: &FileTree<D>,
+    ) -> RepoResult<Changeset<D>, S::RepoStorageError> {
+        let changes = DashMap::new();
+        let joined: Vec<_> = outer_join(from.files(), to.files())
+            .map(|(path, join)| {
+                let join = match join {
+                    OuterJoinEntry::Left(file_ref) => OuterJoinEntry::Left(file_ref.clone()),
+                    OuterJoinEntry::Right(file_ref) => OuterJoinEntry::Right(file_ref.clone()),
+                    OuterJoinEntry::Both(from_ref, to_ref) => {
+                        OuterJoinEntry::Both(from_ref.clone(), to_ref.clone())
+                    }
+                };
+                (path.clone(), join)
+            })
+            .collect();
+
+        for (path, join) in joined {
+            match join {
+                OuterJoinEntry::Left(_) => {
+                    changes.insert(path, FileChange::Delete);
+                }
+                OuterJoinEntry::Right(file_ref) => {
+                    changes.insert(path, FileChange::Create(file_ref));
+                }
+                OuterJoinEntry::Both(from_ref, to_ref) => {
+                    if from_ref == to_ref {
+                        continue;
+                    }
+
+                    let file_before = self.get_file(&from_ref).await?;
+                    let file_after = self.get_file(&to_ref).await?;
+                    let file_diff = FileDiff::between(diff_policy, &file_before, &file_after);
+                    let file_diff_ref = self.insert_file_diff(file_diff).await?;
+
+                    changes.insert(path, FileChange::Modify(file_diff_ref));
+                }
+            }
+        }
+
+        Ok(Changeset {
+            changeset: changes.into_read_only(),
+        })
+    }
 }
 
 #[cfg(test)]
@@ -632,6 +796,9 @@ mod tests {
     use super::*;
     use crate::changeset::file::{File, FileChange};
     use crate::crypto::signature::{SignContext, generate_signing_key};
+    use crate::diff::diff_policy::NaiveDiff;
+    use crate::fs::FileSystemError;
+    use crate::fs::memory::MemoryFileSystem;
     use crate::storage::memory::MemoryRepoStorage;
     use dashmap::DashMap;
     use std::sync::Arc;
@@ -758,7 +925,7 @@ mod tests {
         )
         .await;
 
-        let tree = repo.file_tree_at(&second).await.unwrap();
+        let tree = repo.file_tree_at_revision(&second).await.unwrap();
 
         assert_eq!(tree.read_only_view().len(), 2);
         assert_eq!(tree.read_only_view().get(&foo), Some(&foo_file));
@@ -769,6 +936,8 @@ mod tests {
         // Initialize manually to avoid hitting todo forn ow
         let storage = Arc::new(TestStorage::new());
         let head = Head(blake3::hash(b"head"));
+        let changeset = Changeset::empty();
+        let changeset_id = changeset.to_digest();
         <TestStorage as crate::storage::Storage<(), Head<Digest>>>::store(
             storage.as_ref(),
             &(),
@@ -777,6 +946,21 @@ mod tests {
         .await
         .unwrap();
         let repo = Repo::load(storage).await;
+        repo.changesets
+            .insert(&changeset_id, changeset)
+            .await
+            .unwrap();
+        repo.revision_headers
+            .set(
+                &head.0,
+                RevisionHeader {
+                    changeset: changeset_id,
+                    parent: Digest::zero(),
+                    depth: 0,
+                },
+            )
+            .await
+            .unwrap();
         (repo, head.0)
     }
 
@@ -817,10 +1001,19 @@ mod tests {
                 RevisionHeader {
                     changeset: changeset_id,
                     parent,
+                    depth: revision_depth(repo, &parent).await,
                 },
             )
             .await
             .unwrap();
+    }
+
+    async fn revision_depth(repo: &Repo<Digest, TestStorage>, parent: &Digest) -> u32 {
+        if *parent == Digest::zero() {
+            0
+        } else {
+            repo.get_revision_header(parent).await.unwrap().depth + 1
+        }
     }
 
     async fn store_file(repo: &Repo<Digest, TestStorage>, content: &[u8]) -> Digest {
@@ -837,5 +1030,106 @@ mod tests {
         .await
         .unwrap();
         file_id
+    }
+
+    fn path(path: &str) -> RepoPath {
+        RepoPath::try_from(path).unwrap()
+    }
+
+    fn file(content: &str) -> File {
+        File::new(content.as_bytes().to_vec().into_boxed_slice(), false)
+    }
+
+    fn assert_file(fs: &MemoryFileSystem, file_path: &str, expected_content: &str) {
+        let file = fs.read(&path(file_path)).unwrap();
+        assert_eq!(file.content(), expected_content.as_bytes());
+    }
+
+    fn assert_missing(fs: &MemoryFileSystem, file_path: &str) {
+        let result = fs.read(&path(file_path));
+        assert!(matches!(result, Err(FileSystemError::MissingFile)));
+    }
+
+    #[tokio::test]
+    async fn checkout_moves_between_branch_revisions() {
+        let storage = Arc::new(MemoryRepoStorage::<blake3::Hash>::new());
+        let key_pair = generate_signing_key().unwrap();
+        let repo = Repo::init(storage, SignContext::new(&key_pair))
+            .await
+            .unwrap();
+        let diff_policy = NaiveDiff;
+
+        let one_a = file("one-a");
+        let one_b = file("one-b");
+        let one_c = file("one-c");
+        let keep = file("keep");
+        let b_only = file("b-only");
+        let c_only = file("c-only");
+
+        let initial = repo.head().await.unwrap();
+        let one_a_ref = repo.insert_file(one_a.clone()).await.unwrap();
+        let keep_ref = repo.insert_file(keep.clone()).await.unwrap();
+        let rev_a = repo
+            .insert_revision_from_changeset(
+                &initial,
+                Changeset::from_changes([
+                    (path("one.txt"), FileChange::Create(one_a_ref)),
+                    (path("keep.txt"), FileChange::Create(keep_ref)),
+                ]),
+            )
+            .await
+            .unwrap();
+
+        let one_a_to_b_ref = repo
+            .insert_file_diff(FileDiff::between(&diff_policy, &one_a, &one_b))
+            .await
+            .unwrap();
+        let b_only_ref = repo.insert_file(b_only.clone()).await.unwrap();
+        let rev_b = repo
+            .insert_revision_from_changeset(
+                &rev_a,
+                Changeset::from_changes([
+                    (path("one.txt"), FileChange::Modify(one_a_to_b_ref)),
+                    (path("keep.txt"), FileChange::Delete),
+                    (path("b.txt"), FileChange::Create(b_only_ref)),
+                ]),
+            )
+            .await
+            .unwrap();
+
+        let one_a_to_c_ref = repo
+            .insert_file_diff(FileDiff::between(&diff_policy, &one_a, &one_c))
+            .await
+            .unwrap();
+        let c_only_ref = repo.insert_file(c_only.clone()).await.unwrap();
+        let rev_c = repo
+            .insert_revision_from_changeset(
+                &rev_a,
+                Changeset::from_changes([
+                    (path("one.txt"), FileChange::Modify(one_a_to_c_ref)),
+                    (path("c.txt"), FileChange::Create(c_only_ref)),
+                ]),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(repo.get_revisions_lca(&rev_b, &rev_c).await.unwrap(), rev_a);
+
+        let mut fs = MemoryFileSystem::new();
+        repo.checkout(&mut fs, &diff_policy, &rev_b).await.unwrap();
+
+        assert_eq!(repo.head().await.unwrap(), rev_b);
+        assert_file(&fs, "one.txt", "one-b");
+        assert_file(&fs, "b.txt", "b-only");
+        assert_missing(&fs, "keep.txt");
+        assert_missing(&fs, "c.txt");
+
+        repo.checkout(&mut fs, &diff_policy, &rev_c).await.unwrap();
+
+        assert_eq!(repo.head().await.unwrap(), rev_c);
+        assert_file(&fs, "one.txt", "one-c");
+        assert_file(&fs, "keep.txt", "keep");
+        assert_file(&fs, "c.txt", "c-only");
+        assert_missing(&fs, "b.txt");
     }
 }
