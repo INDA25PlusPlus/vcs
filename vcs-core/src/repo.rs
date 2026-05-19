@@ -6,7 +6,7 @@ use crate::changeset::file::{FileChangeError, FileDiff};
 use crate::changeset::{Changeset, ChangesetRef, combine_changesets};
 use crate::crypto::digest::{CryptoDigest, CryptoHash};
 use crate::crypto::signature::SignContext;
-use crate::diff::diff_policy::{DiffPolicy, MyersDiff};
+use crate::diff::diff_policy::DiffPolicy;
 use crate::diff::hunk::HunkCollectionError;
 use crate::fs::map_ops::DashMapGuard;
 use crate::fs::path::RepoPath;
@@ -122,8 +122,6 @@ pub enum CheckoutError<FE, SE> {
     #[error("{0}")]
     Repo(#[from] RepoError<SE>),
     #[error("{0}")]
-    FileSystemRead(#[from] FileSystemReadError<FE, SE>),
-    #[error("{0}")]
     FileSystemWrite(#[from] FileSystemWriteError<FE, SE>),
 }
 
@@ -227,38 +225,6 @@ where
     where
         F: FileSystem,
     {
-        fn temp_diff_policy() -> &'static MyersDiff {
-            static DIFF_POLICY: MyersDiff = MyersDiff;
-
-            &DIFF_POLICY
-        }
-
-        // troligtvis måste vi lagra en Arc<tokio::sync::Mutex<F>>, där F: FileSystem, i Repo, och
-        // sedan locka den här när vi vill komma åt fs. detta för att &mut krävs för att säkerställa
-        // safe concerrency inom FileSystem.
-        let diff_policy = temp_diff_policy();
-
-        let old_head = self.head().await?;
-        let old_head_tree = self.file_tree_at(&old_head).await?;
-        let fs_result: Result<(), FileSystemReadError<F::Error, S::RepoStorageError>> = self
-            .pending_changes
-            .try_update(&old_head, async |pending| {
-                let mut pending = pending.clone();
-                file_system
-                    .update_pending_changes(
-                        diff_policy,
-                        self.storage.as_ref(),
-                        &old_head_tree,
-                        &mut pending,
-                        true,
-                    )
-                    .await?;
-                Ok(pending)
-            })
-            .await
-            .map_err(RepoError::from)?;
-        fs_result?;
-
         let new_head_tree = self.file_tree_at(&rev).await?;
         let pending = self.pending_changes_at(&rev).await?;
         let fs_result: Result<(), FileSystemWriteError<F::Error, S::RepoStorageError>> =
