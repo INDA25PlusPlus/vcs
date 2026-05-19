@@ -62,6 +62,10 @@ impl<D: CryptoDigest + CryptoHash> Patch<D> {
         &self.changeset
     }
 
+    pub fn author_message(&self) -> &str {
+        self.author.message.as_ref()
+    }
+
     pub fn new_signed(
         changeset: ChangesetRef<D>,
         message: Box<str>,

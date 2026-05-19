@@ -11,7 +11,7 @@ where
     Ok(())
 }
 
-pub(super) async fn output<S>(app: &App<S>) -> Result<String, CliError>
+pub async fn output<S>(app: &App<S>) -> Result<String, CliError>
 where
     S: AppStorage,
 {
@@ -33,14 +33,21 @@ where
 }
 
 fn format_entry(revision_id: &Digest, metadata: &RevisionMetadata<Digest>) -> String {
-    format!(
-        "revision {}\n    {}\n\n",
-        short_digest(revision_id),
-        revision_summary(metadata)
-    )
+    let mut output = format!("revision {}\n", short_digest(revision_id));
+
+    for patch in metadata.patches.iter() {
+        output.push_str(&format!("    author: {}\n", patch.author_message()));
+    }
+
+    output.push_str(&format!(
+        "    committer: {}\n\n",
+        committer_summary(metadata)
+    ));
+
+    output
 }
 
-fn revision_summary(metadata: &RevisionMetadata<Digest>) -> &str {
+fn committer_summary(metadata: &RevisionMetadata<Digest>) -> &str {
     metadata
         .committer
         .as_ref()
