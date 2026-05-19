@@ -215,15 +215,16 @@ where
     }
 
     pub async fn checkout(&self, rev: RevisionRef<D>) -> RepoResult<(), S::RepoStorageError> {
-        type P = MyersDiff;
         type F = DiskFileSystem;
 
         fn temp_fs() -> &'static mut F {
             todo!()
         }
 
-        fn temp_diff_policy() -> &'static P {
-            todo!()
+        fn temp_diff_policy() -> &'static MyersDiff {
+            static DIFF_POLICY: MyersDiff = MyersDiff;
+
+            &DIFF_POLICY
         }
 
         async fn temp_traverse_construct_file_tree_naive<D: CryptoDigest + CryptoHash>(
