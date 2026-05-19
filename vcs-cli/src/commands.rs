@@ -3,6 +3,7 @@ use crate::{App, AppStorage, Command};
 
 mod checkout;
 mod commit;
+mod dump;
 mod init;
 mod log;
 mod stage;
@@ -19,6 +20,7 @@ where
         Command::Init => init::run(app).await,
         Command::Status => status::run(app).await,
         Command::Log => log::run(app).await,
+        Command::Dump => dump::run(app).await,
         Command::Stage { paths } => stage::run(app, &paths).await,
         Command::Unstage { paths } => unstage::run(app, &paths).await,
         Command::Commit {

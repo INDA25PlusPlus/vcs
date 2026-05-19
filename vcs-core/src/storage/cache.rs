@@ -330,6 +330,10 @@ mod tests {
         async fn delete(&self, _key: &()) -> Result<(), Self::Error> {
             Ok(())
         }
+
+        async fn dump(&self) -> Result<Vec<((), ())>, Self::Error> {
+            Ok(Vec::new())
+        }
     }
 
     #[test]
@@ -376,6 +380,15 @@ mod tests {
         async fn delete(&self, _key: &()) -> Result<(), Self::Error> {
             *self.value.lock().unwrap() = None;
             Ok(())
+        }
+
+        async fn dump(&self) -> Result<Vec<((), i32)>, Self::Error> {
+            Ok(self
+                .value
+                .lock()
+                .unwrap()
+                .map(|value| vec![((), value)])
+                .unwrap_or_default())
         }
     }
 

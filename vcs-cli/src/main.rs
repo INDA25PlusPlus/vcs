@@ -40,6 +40,8 @@ pub(crate) enum Command {
     Status,
     /// Show recorded revisions.
     Log,
+    /// Show all stored revisions.
+    Dump,
     /// Stage pending changes.
     Stage {
         #[arg(required = true)]
