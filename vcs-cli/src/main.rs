@@ -115,7 +115,8 @@ where
         &self,
         repo: &Repo<Digest, S>,
     ) -> Result<(), CliError> {
-        let mut file_system = DiskFileSystem::new(PathBuf::from(".").into_boxed_path());
+        let mut file_system = DiskFileSystem::new(PathBuf::from(".").into_boxed_path())
+            .with_ignored_root_entries([STORAGE_PATH]);
         repo.refresh_pending_changes(&mut file_system, &MyersDiff)
             .await
             .map_err(|err| CliError::StorageError(err.to_string()))
