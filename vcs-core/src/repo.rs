@@ -6,8 +6,10 @@ use crate::changeset::file::FileDiff;
 use crate::changeset::{Changeset, ChangesetRef};
 use crate::crypto::digest::{CryptoDigest, CryptoHash};
 use crate::crypto::signature::SignContext;
+use crate::diff::diff_policy::DiffPolicy;
 use crate::fs::map_ops::DashMapGuard;
 use crate::fs::path::RepoPath;
+use crate::fs::{FileSystem, FileSystemReadError, FileTree, FileTreeError};
 use crate::repo::repo_storage::RepoStorage;
 use crate::revision::timestamp::Timestamp;
 use crate::revision::{Patch, Revision, RevisionHeader, RevisionMetadata, RevisionRef};
@@ -96,6 +98,16 @@ pub enum RepoError<E> {
     NoStagedChanges,
     #[error("internal storage error: '{0}'")]
     StorageError(E),
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum RefreshPendingChangesError<FE, SE> {
+    #[error("{0}")]
+    Repo(#[from] RepoError<SE>),
+    #[error("invalid file tree at head: {0}")]
+    InvalidHeadFileTree(#[from] FileTreeError),
+    #[error("{0}")]
+    FileSystem(#[from] FileSystemReadError<FE, SE>),
 }
 
 impl<E> From<StorageError<E>> for RepoError<E> {
@@ -229,6 +241,44 @@ where
         let pending = self.pending_changes_at(&head).await?;
         let staged = self.staged_changes_at(&head).await?;
         Ok(RepoStatus { staged, pending })
+    }
+
+    pub async fn refresh_pending_changes<F, P>(
+        &self,
+        file_system: &mut F,
+        diff_policy: &P,
+    ) -> Result<(), RefreshPendingChangesError<F::Error, S::RepoStorageError>>
+    where
+        F: FileSystem,
+        P: DiffPolicy,
+    {
+        let head = self.head().await?;
+        let header = self.get_revision_header(&head).await?;
+        let head_changeset = self
+            .changesets
+            .get(&header.changeset)
+            .await
+            .map_err(RepoError::from)?
+            .clone();
+        let head_tree = FileTree::try_from(head_changeset)?;
+        let mut pending = self.pending_changes_at(&head).await?;
+
+        file_system
+            .update_pending_changes(
+                diff_policy,
+                self.storage.as_ref(),
+                &head_tree,
+                &mut pending,
+                true,
+            )
+            .await?;
+
+        self.pending_changes
+            .set(&head, pending)
+            .await
+            .map_err(RepoError::from)?;
+
+        Ok(())
     }
 
     pub async fn stage(&self, paths: &[RepoPath]) -> RepoResult<(), S::RepoStorageError> {

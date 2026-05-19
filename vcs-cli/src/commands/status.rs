@@ -18,6 +18,7 @@ where
     S: AppStorage,
 {
     let repo = app.open_repo().await;
+    app.refresh_pending_changes(&repo).await?;
     let status = repo.status().await?;
 
     Ok(format_status(&status))
