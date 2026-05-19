@@ -1,5 +1,5 @@
 use crate::error::CliError;
-use crate::{App, AppStorage, Digest, short_digest};
+use crate::{App, AppStorage, Digest};
 use vcs_core::crypto::digest::CryptoDigest;
 use vcs_core::revision::RevisionMetadata;
 
@@ -33,7 +33,7 @@ where
 }
 
 fn format_entry(revision_id: &Digest, metadata: &RevisionMetadata<Digest>) -> String {
-    let mut output = format!("revision {}\n", short_digest(revision_id));
+    let mut output = format!("revision {}\n", revision_id.to_hex());
 
     for patch in metadata.patches.iter() {
         output.push_str(&format!("    author: {}\n", patch.author_message()));
