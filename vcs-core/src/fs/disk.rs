@@ -17,6 +17,7 @@ use crate::storage::Storage;
 use cfg_if::cfg_if;
 use dashmap::{DashMap, ReadOnlyView};
 use futures::future::try_join_all;
+use std::ffi::OsStr;
 use std::fs::{FileType, Metadata};
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
@@ -32,13 +33,24 @@ pub struct DiskFileSystem {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("I/O error: {0}")]
     IoError(std::io::Error),
+    #[error("invalid repository path")]
     InvalidPath(RepoPathError),
+    #[error("unsupported file type: {0:?}")]
     InvalidFileType(FileType),
 }
 
 impl DiskFileSystem {
+    pub fn new(base_path: Box<Path>) -> Self {
+        Self {
+            base_path,
+            cache_times: DashMap::new(),
+        }
+    }
+
     fn is_dirty(metadata: Option<&Metadata>, cache_time: Option<&SystemTime>) -> Result<bool> {
         Ok(match (metadata, cache_time) {
             // file does not exist on file => dirty
@@ -137,9 +149,13 @@ impl DiskFileSystem {
         }
 
         let indexes = entries.iter().map(|entry| async {
+            let entry_name = entry.file_name();
+            if repo_path.components().is_empty() && entry_name == OsStr::new(IGNORED_PATH) {
+                return Ok(vec![]);
+            }
+
             let (entry_type, metadata) = try_join!(entry.file_type(), entry.metadata())?;
 
-            let entry_name = entry.file_name();
             let repo_path_component =
                 RepoPathComponent::try_from(entry_name.as_os_str()).map_err(Error::InvalidPath)?;
 

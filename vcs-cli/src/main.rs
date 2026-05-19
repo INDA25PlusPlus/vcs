@@ -4,6 +4,8 @@ use std::sync::Arc;
 
 use clap::{Parser, Subcommand};
 use vcs_core::crypto::signature::{SignContext, generate_signing_key};
+use vcs_core::diff::diff_policy::MyersDiff;
+use vcs_core::fs::disk::DiskFileSystem;
 use vcs_core::repo::Repo;
 use vcs_core::repo::repo_storage::RepoStorage;
 use vcs_core::storage::disk::DiskStorage;
@@ -107,6 +109,16 @@ where
 
     pub(crate) async fn open_repo(&self) -> Repo<Digest, S> {
         Repo::load(self.storage.clone()).await
+    }
+
+    pub(crate) async fn refresh_pending_changes(
+        &self,
+        repo: &Repo<Digest, S>,
+    ) -> Result<(), CliError> {
+        let mut file_system = DiskFileSystem::new(PathBuf::from(".").into_boxed_path());
+        repo.refresh_pending_changes(&mut file_system, &MyersDiff)
+            .await
+            .map_err(|err| CliError::StorageError(err.to_string()))
     }
 }
 

@@ -16,6 +16,7 @@ where
         .collect::<Result<Vec<_>, _>>()?;
     let repo = app.open_repo().await;
 
+    app.refresh_pending_changes(&repo).await?;
     repo.stage(&paths).await?;
 
     Ok(())
