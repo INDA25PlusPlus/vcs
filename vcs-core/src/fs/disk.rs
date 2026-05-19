@@ -17,17 +17,16 @@ use crate::storage::Storage;
 use cfg_if::cfg_if;
 use dashmap::{DashMap, ReadOnlyView};
 use futures::future::try_join_all;
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::fs::{FileType, Metadata};
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 use tokio::try_join;
 
-pub const IGNORED_PATH: &str = ".vcs";
-
 pub struct DiskFileSystem {
     base_path: Box<Path>,
+    ignored_root_entries: Box<[OsString]>,
     cache_times: DashMap<RepoPath, SystemTime>,
 }
 
@@ -47,8 +46,30 @@ impl DiskFileSystem {
     pub fn new(base_path: Box<Path>) -> Self {
         Self {
             base_path,
+            ignored_root_entries: Box::new([]),
             cache_times: DashMap::new(),
         }
+    }
+
+    pub fn with_ignored_root_entries<I, S>(mut self, entries: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<OsString>,
+    {
+        self.ignored_root_entries = entries
+            .into_iter()
+            .map(Into::into)
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
+        self
+    }
+
+    fn ignores_root_entry(&self, repo_path: &RepoPath, entry_name: &OsStr) -> bool {
+        repo_path.components().is_empty()
+            && self
+                .ignored_root_entries
+                .iter()
+                .any(|ignored| ignored.as_os_str() == entry_name)
     }
 
     fn is_dirty(metadata: Option<&Metadata>, cache_time: Option<&SystemTime>) -> Result<bool> {
@@ -139,6 +160,7 @@ impl DiskFileSystem {
     }
 
     async fn index_files_recurse(
+        &self,
         fs_path: &Path,
         repo_path: &RepoPath,
     ) -> Result<Vec<(RepoPath, FileIndexEntry)>> {
@@ -150,7 +172,7 @@ impl DiskFileSystem {
 
         let indexes = entries.iter().map(|entry| async {
             let entry_name = entry.file_name();
-            if repo_path.components().is_empty() && entry_name == OsStr::new(IGNORED_PATH) {
+            if self.ignores_root_entry(repo_path, &entry_name) {
                 return Ok(vec![]);
             }
 
@@ -162,7 +184,7 @@ impl DiskFileSystem {
             let fs_path = fs_path.join(entry_name);
             let repo_path = repo_path.join(repo_path_component);
             if entry_type.is_dir() {
-                DiskFileSystem::index_files_recurse(&fs_path, &repo_path).await
+                self.index_files_recurse(&fs_path, &repo_path).await
             } else if entry_type.is_file() {
                 Ok(vec![(repo_path, FileIndexEntry { fs_path, metadata })])
             } else {
@@ -175,7 +197,8 @@ impl DiskFileSystem {
     }
 
     async fn index_files(&self, fs_path: &Path) -> Result<ReadOnlyView<RepoPath, FileIndexEntry>> {
-        let index: DashMap<_, _> = DiskFileSystem::index_files_recurse(fs_path, &RepoPath::new())
+        let index: DashMap<_, _> = self
+            .index_files_recurse(fs_path, &RepoPath::new())
             .await?
             .into_iter()
             .collect();
