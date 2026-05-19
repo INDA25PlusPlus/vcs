@@ -11,6 +11,8 @@ where
     S: AppStorage,
 {
     let repo = app.open_repo().await;
+    app.refresh_pending_changes(&repo).await?;
+
     // TODO: Load a persistent user signing key instead of generating a throwaway key.
     let key_pair = generate_signing_key().map_err(|_| CliError::KeyGeneration)?;
 
