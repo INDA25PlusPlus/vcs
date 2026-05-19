@@ -62,7 +62,10 @@ pub(crate) enum Command {
     /// Switch to another revision.
     Checkout { revision: Digest },
     /// Restore pending changes.
-    Restore,
+    Restore {
+        #[arg(required = true)]
+        paths: Vec<PathBuf>,
+    },
 }
 
 #[tokio::main]

@@ -1,5 +1,6 @@
 use super::*;
 use clap::{CommandFactory, Parser};
+use std::path::PathBuf;
 
 #[test]
 fn cli_shape_is_valid() {
@@ -68,7 +69,15 @@ fn parses_checkout_revision() {
 
 #[test]
 fn parses_restore() {
-    let args = Args::try_parse_from(["vcs", "restore"]).unwrap();
+    let args = Args::try_parse_from(["vcs", "restore", "foo.txt", "bar.txt"]).unwrap();
 
-    assert!(matches!(args.command, Command::Restore));
+    assert!(matches!(
+        args.command,
+        Command::Restore { paths } if paths == [PathBuf::from("foo.txt"), PathBuf::from("bar.txt")]
+    ));
+}
+
+#[test]
+fn restore_requires_a_path() {
+    assert!(Args::try_parse_from(["vcs", "restore"]).is_err());
 }
