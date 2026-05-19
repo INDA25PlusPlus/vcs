@@ -196,9 +196,23 @@ impl<D: CryptoDigest + CryptoHash + Eq + Hash> TryFrom<Changeset<D>> for FileTre
                 _ => Err(FileTreeError::InvalidFileChangeMode),
             })
             .collect::<Result<DashMap<_, _>, _>>()
-            .map(|files| FileTree {
-                files: files.into_read_only(),
-            })
+            .map(FileTree::from_files)
+    }
+}
+
+impl<D> FileTree<D> {
+    pub fn empty() -> FileTree<D> {
+        FileTree::from_files(DashMap::new())
+    }
+
+    pub fn from_files(files: DashMap<RepoPath, FileRef<D>>) -> FileTree<D> {
+        FileTree {
+            files: files.into_read_only(),
+        }
+    }
+
+    pub fn files(&self) -> &ReadOnlyView<RepoPath, FileRef<D>> {
+        &self.files
     }
 }
 
