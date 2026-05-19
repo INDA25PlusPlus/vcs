@@ -23,12 +23,12 @@ async fn log_walks_revision_parents_from_head() {
     store_revision(&app, second, first).await;
     store_revision(&app, third, second).await;
 
-    let output = super::log::output(&app).await.unwrap();
+    let output = crate::commands::log::output(&app).await.unwrap();
     let expected = [third, second, first]
         .into_iter()
         .map(|revision_id| {
             format!(
-                "revision {}\n    <uncommitted>\n\n",
+                "revision {}\n    committer: <uncommitted>\n\n",
                 short_digest(&revision_id)
             )
         })
