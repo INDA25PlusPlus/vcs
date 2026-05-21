@@ -1,8 +1,7 @@
 pub mod repo_storage;
 
-mod commit;
 mod error;
-mod history;
+mod revision;
 mod state;
 #[cfg(test)]
 mod tests;
