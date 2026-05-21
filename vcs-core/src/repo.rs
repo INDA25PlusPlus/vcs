@@ -5,7 +5,7 @@ mod revision;
 mod state;
 #[cfg(test)]
 mod tests;
-mod worktree;
+mod working_tree;
 
 use crate::changeset::Changeset;
 use crate::changeset::file::FileDiff;
