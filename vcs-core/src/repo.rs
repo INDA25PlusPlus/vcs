@@ -1,8 +1,7 @@
 pub mod repo_storage;
 
 mod error;
-
-use crypto_hash_derive::CryptoHash;
+mod state;
 
 use crate::changeset::file::{FileChangeError, FileDiff};
 use crate::changeset::{Changeset, ChangesetRef, combine_changesets};
@@ -15,62 +14,14 @@ use crate::fs::{FileSystem, FileSystemWriteError, FileTree};
 use crate::repo::repo_storage::RepoStorage;
 use crate::revision::timestamp::Timestamp;
 use crate::revision::{Patch, Revision, RevisionHeader, RevisionMetadata, RevisionRef};
-use crate::storage::cache::MutableCache;
-use crate::storage::{StorageError, cache::FrozenCache};
-use serde::{Deserialize, Serialize};
+use crate::storage::cache::{FrozenCache, MutableCache};
 use std::error::Error;
 use std::hash::Hash;
 use std::sync::Arc;
 use tokio::try_join;
 
 pub use error::{CheckoutError, RefreshPendingChangesError, RepoError, RepoResult, RestoreError};
-
-#[derive(Clone, CryptoHash, Debug, Serialize, Deserialize)]
-pub struct Head<D: CryptoDigest + CryptoHash>(pub RevisionRef<D>);
-
-#[derive(Clone, CryptoHash, Debug, Serialize, Deserialize)]
-pub struct PendingChanges<D: CryptoDigest + CryptoHash>(pub Changeset<D>);
-
-#[derive(Clone, CryptoHash, Debug, Serialize, Deserialize)]
-pub struct StagedChanges<D: CryptoDigest + CryptoHash>(pub Changeset<D>);
-
-impl<D: CryptoDigest + CryptoHash> PendingChanges<D> {
-    pub fn empty() -> PendingChanges<D> {
-        PendingChanges::default()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-}
-
-impl<D: CryptoDigest + CryptoHash> StagedChanges<D> {
-    pub fn empty() -> StagedChanges<D> {
-        StagedChanges::default()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-}
-
-impl<D: CryptoDigest + CryptoHash> Default for PendingChanges<D> {
-    fn default() -> Self {
-        PendingChanges(Changeset::default())
-    }
-}
-
-impl<D: CryptoDigest + CryptoHash> Default for StagedChanges<D> {
-    fn default() -> Self {
-        StagedChanges(Changeset::default())
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct RepoStatus<D: CryptoDigest + CryptoHash> {
-    pub staged: StagedChanges<D>,
-    pub pending: PendingChanges<D>,
-}
+pub use state::{Head, PendingChanges, RepoStatus, StagedChanges};
 
 pub struct Repo<D: CryptoDigest + CryptoHash, S>
 where
@@ -147,16 +98,6 @@ where
             file_diffs: FrozenCache::new(storage.clone()),
             storage,
         }
-    }
-
-    pub async fn head(&self) -> RepoResult<RevisionRef<D>, S::RepoStorageError> {
-        let head = self.head.get(&(), async |v| v.clone()).await?;
-
-        Ok(head.0)
-    }
-
-    pub async fn set_head(&self, rev: RevisionRef<D>) -> RepoResult<(), S::RepoStorageError> {
-        Ok(self.head.update(&(), async |_old_head| Head(rev)).await?)
     }
 
     pub async fn checkout<F>(
@@ -257,54 +198,6 @@ where
         }
     }
 
-    async fn pending_changes_at(
-        &self,
-        head: &RevisionRef<D>,
-    ) -> RepoResult<PendingChanges<D>, S::RepoStorageError> {
-        match self
-            .pending_changes
-            .get(head, async |pending| pending.clone())
-            .await
-        {
-            Ok(pending) => Ok(pending),
-            Err(StorageError::MissingObject) => Ok(PendingChanges::empty()),
-            Err(StorageError::InternalError(err)) => Err(RepoError::StorageError(err)),
-        }
-    }
-
-    async fn staged_changes_at(
-        &self,
-        head: &RevisionRef<D>,
-    ) -> RepoResult<StagedChanges<D>, S::RepoStorageError> {
-        match self
-            .staged_changes
-            .get(head, async |staged| staged.clone())
-            .await
-        {
-            Ok(staged) => Ok(staged),
-            Err(StorageError::MissingObject) => Ok(StagedChanges::empty()),
-            Err(StorageError::InternalError(err)) => Err(RepoError::StorageError(err)),
-        }
-    }
-
-    async fn update_staged_changes_at(
-        &self,
-        head: &RevisionRef<D>,
-        f: impl AsyncFnOnce(&StagedChanges<D>) -> StagedChanges<D>,
-    ) -> RepoResult<(), S::RepoStorageError> {
-        Ok(self
-            .staged_changes
-            .update_or_else(head, f, async |_key| StagedChanges::empty())
-            .await?)
-    }
-
-    pub async fn status(&self) -> RepoResult<RepoStatus<D>, S::RepoStorageError> {
-        let head = self.head().await?;
-        let pending = self.pending_changes_at(&head).await?;
-        let staged = self.staged_changes_at(&head).await?;
-        Ok(RepoStatus { staged, pending })
-    }
-
     pub async fn refresh_pending_changes<F, P>(
         &self,
         file_system: &mut F,
@@ -333,46 +226,6 @@ where
             .await
             .map_err(RepoError::from)?;
 
-        Ok(())
-    }
-
-    pub async fn stage(&self, paths: &[RepoPath]) -> RepoResult<(), S::RepoStorageError> {
-        let head = self.head().await?;
-
-        let pending = self.pending_changes_at(&head).await?;
-
-        self.update_staged_changes_at(&head, async |staged| {
-            let mut updated_staged = staged.clone();
-            {
-                let staged_changes = DashMapGuard::new(&mut updated_staged.0.changeset);
-                for path in paths {
-                    if let Some(change) = pending.0.changeset.get(path) {
-                        staged_changes.insert(path.clone(), change.clone());
-                    } else {
-                        staged_changes.remove(path);
-                    }
-                }
-            }
-            updated_staged
-        })
-        .await?;
-        Ok(())
-    }
-
-    pub async fn unstage(&self, paths: &[RepoPath]) -> RepoResult<(), S::RepoStorageError> {
-        let head = self.head().await?;
-
-        self.update_staged_changes_at(&head, async |staged| {
-            let mut updated_staged = staged.clone();
-            {
-                let staged_changes = DashMapGuard::new(&mut updated_staged.0.changeset);
-                for path in paths {
-                    staged_changes.remove(path);
-                }
-            }
-            updated_staged
-        })
-        .await?;
         Ok(())
     }
 
