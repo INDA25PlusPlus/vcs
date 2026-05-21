@@ -1,5 +1,7 @@
 pub mod repo_storage;
 
+mod error;
+
 use crypto_hash_derive::CryptoHash;
 
 use crate::changeset::file::{FileChangeError, FileDiff};
@@ -7,10 +9,9 @@ use crate::changeset::{Changeset, ChangesetRef, combine_changesets};
 use crate::crypto::digest::{CryptoDigest, CryptoHash};
 use crate::crypto::signature::SignContext;
 use crate::diff::diff_policy::DiffPolicy;
-use crate::diff::hunk::HunkCollectionError;
 use crate::fs::map_ops::DashMapGuard;
 use crate::fs::path::RepoPath;
-use crate::fs::{FileSystem, FileSystemReadError, FileSystemWriteError, FileTree, FileTreeError};
+use crate::fs::{FileSystem, FileSystemWriteError, FileTree};
 use crate::repo::repo_storage::RepoStorage;
 use crate::revision::timestamp::Timestamp;
 use crate::revision::{Patch, Revision, RevisionHeader, RevisionMetadata, RevisionRef};
@@ -21,6 +22,8 @@ use std::error::Error;
 use std::hash::Hash;
 use std::sync::Arc;
 use tokio::try_join;
+
+pub use error::{CheckoutError, RefreshPendingChangesError, RepoError, RepoResult, RestoreError};
 
 #[derive(Clone, CryptoHash, Debug, Serialize, Deserialize)]
 pub struct Head<D: CryptoDigest + CryptoHash>(pub RevisionRef<D>);
@@ -87,75 +90,6 @@ where
     file_diffs: FrozenCache<D, FileDiff, S>,
 
     storage: Arc<S>,
-}
-
-pub type RepoResult<T, E> = Result<T, RepoError<E>>;
-
-#[derive(Debug, thiserror::Error)]
-pub enum RepoError<E> {
-    #[error("failed to find object in database")]
-    MissingObject,
-    #[error("no staged changes to commit")]
-    NoStagedChanges,
-    #[error("invalid file change")]
-    InvalidFileChange,
-    #[error("invalid file diff: {0}")]
-    InvalidFileDiff(HunkCollectionError),
-    #[error("invalid file tree: {0}")]
-    InvalidFileTree(FileTreeError),
-    #[error("internal storage error: '{0}'")]
-    StorageError(E),
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum RefreshPendingChangesError<FE, SE> {
-    #[error("{0}")]
-    Repo(#[from] RepoError<SE>),
-    #[error("invalid file tree at head: {0}")]
-    InvalidHeadFileTree(#[from] FileTreeError),
-    #[error("{0}")]
-    FileSystem(#[from] FileSystemReadError<FE, SE>),
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum CheckoutError<FE, SE> {
-    #[error("{0}")]
-    Repo(#[from] RepoError<SE>),
-    #[error("{0}")]
-    FileSystemWrite(#[from] FileSystemWriteError<FE, SE>),
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum RestoreError<FE, SE> {
-    #[error("{0}")]
-    Repo(#[from] RepoError<SE>),
-    #[error("{0}")]
-    FileSystemWrite(#[from] FileSystemWriteError<FE, SE>),
-}
-
-impl<E> From<StorageError<E>> for RepoError<E> {
-    fn from(value: StorageError<E>) -> Self {
-        match value {
-            StorageError::InternalError(err) => RepoError::StorageError(err),
-            StorageError::MissingObject => RepoError::MissingObject,
-        }
-    }
-}
-
-impl<E> From<E> for RepoError<E> {
-    fn from(value: E) -> Self {
-        RepoError::StorageError(value)
-    }
-}
-
-impl<E> From<FileChangeError<E>> for RepoError<E> {
-    fn from(value: FileChangeError<E>) -> Self {
-        match value {
-            FileChangeError::StorageError(err) => RepoError::from(err),
-            FileChangeError::InvalidFileDiff(err) => RepoError::InvalidFileDiff(err),
-            FileChangeError::InvalidFileChange => RepoError::InvalidFileChange,
-        }
-    }
 }
 
 impl<D: CryptoDigest + CryptoHash, S> Repo<D, S>
